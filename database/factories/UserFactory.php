@@ -29,10 +29,21 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'major' => fake()->randomElement(['Teknik Informatika', 'Sistem Informasi', 'Teknologi Informasi', 'Bisnis Digital']),
             'batch_year' => (string) fake()->numberBetween(2020, 2026),
+            'role' => 'user',
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];
+    }
+
+    /**
+     * Indicate that the user is an administrator.
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'admin',
+        ]);
     }
 
     /**
