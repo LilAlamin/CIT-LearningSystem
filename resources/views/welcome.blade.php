@@ -6,9 +6,9 @@
 
         <title>{{ __('Welcome') }} - {{ config('app.name', 'Laravel') }}</title>
 
-        <link rel="icon" href="/favicon.ico" sizes="any">
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+        <link rel="icon" type="image/png" href="{{ asset('logo.png') }}?v=1">
+        <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=1">
+        <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}?v=1">
 
         @fonts
 
