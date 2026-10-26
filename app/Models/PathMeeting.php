@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -44,8 +43,6 @@ use Illuminate\Support\Carbon;
 ])]
 class PathMeeting extends Model
 {
-    use HasFactory;
-
     /**
      * Get the attributes that should be cast.
      *
@@ -89,6 +86,6 @@ class PathMeeting extends Model
             return true;
         }
 
-        return $this->meeting_date !== null && now()->gt($this->meeting_date);
+        return now()->gt($this->meeting_date);
     }
 }

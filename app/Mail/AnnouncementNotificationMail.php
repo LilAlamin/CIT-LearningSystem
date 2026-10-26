@@ -43,7 +43,7 @@ class AnnouncementNotificationMail extends Mailable
             with: [
                 'announcement' => $this->announcement,
                 'recipient' => $this->recipient,
-                'pathTitle' => $this->announcement->learningPath?->title ?? 'Semua Path Learning',
+                'pathTitle' => $this->announcement->learningPath->title ?? 'Semua Path Learning',
                 'url' => route('dashboard'),
             ],
         );
