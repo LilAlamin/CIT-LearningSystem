@@ -44,6 +44,10 @@
                         <flux:sidebar.item icon="calendar-days" :href="route('admin.calendar-events.index')" :current="request()->routeIs('admin.calendar-events.*')" wire:navigate>
                             {{ __('Agenda Kalender') }}
                         </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="cog-6-tooth" :href="route('admin.settings.mail')" :current="request()->routeIs('admin.settings.*')" wire:navigate>
+                            {{ __('Pengaturan SMTP') }}
+                        </flux:sidebar.item>
                     </flux:sidebar.group>
 
                     <flux:sidebar.group :expandable="true" :expanded="request()->routeIs('materials.*') || request()->routeIs('meetings.*') || request()->routeIs('learning-paths.*') || request()->routeIs('announcements.*')" :heading="__('Pratinjau Tampilan Siswa')" icon="eye" class="mt-4">

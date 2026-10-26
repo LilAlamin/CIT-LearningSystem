@@ -46,6 +46,7 @@
 * **Kelola Sertifikat (Certificates)**: Verifikasi kelulusan dan penerbitan sertifikat digital dengan kode unik sertifikat.
 * **Pengumuman & Email (Announcements & Mass Email)**: Pembuatan pengumuman terintegrasi dengan pengiriman email massal otomatis kepada peserta.
 * **Agenda Kalender (Calendar Events)**: Manajemen jadwal agenda akademik dan kegiatan CIT.
+* **Pengaturan SMTP & Email Server (Database-Driven)**: Konfigurasi pengiriman email Brevo langsung dari antarmuka web Admin tanpa perlu menyunting file `.env` di server kampus, dilengkapi fitur uji coba koneksi kirim email instan.
 * **Pratinjau Tampilan Siswa**: Navigasi khusus bagi Admin untuk menginspeksi alur belajar mahasiswa secara langsung.
 
 ---

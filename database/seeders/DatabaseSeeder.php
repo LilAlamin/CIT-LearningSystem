@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Announcement;
+use App\Models\AppSetting;
 use App\Models\CalendarEvent;
 use App\Models\Certificate;
 use App\Models\LearningPath;
@@ -607,5 +608,24 @@ class DatabaseSeeder extends Seeder
                 'certificate_url' => 'https://drive.google.com/file/d/sample-cit-certificate/view',
             ]
         );
+
+        // 11. Seed Default SMTP Mail Settings
+        $defaultMailSettings = [
+            'mail_mailer' => (string) config('mail.default', 'smtp'),
+            'mail_host' => (string) config('mail.mailers.smtp.host', 'smtp-relay.brevo.com'),
+            'mail_port' => (string) config('mail.mailers.smtp.port', '587'),
+            'mail_encryption' => (string) (config('mail.mailers.smtp.encryption') ?? 'tls'),
+            'mail_username' => (string) (config('mail.mailers.smtp.username') ?? 'abf316001@smtp-brevo.com'),
+            'mail_password' => (string) (config('mail.mailers.smtp.password') ?? ''),
+            'mail_from_address' => (string) (config('mail.from.address') ?? 'gsatigaserangkai@gmail.com'),
+            'mail_from_name' => (string) (config('mail.from.name') ?? 'CIT Learning Systems'),
+        ];
+
+        foreach ($defaultMailSettings as $key => $val) {
+            AppSetting::firstOrCreate(
+                ['key' => $key],
+                ['value' => $val, 'group' => 'mail']
+            );
+        }
     }
 }

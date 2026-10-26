@@ -516,7 +516,7 @@ new #[Title('Dashboard')] class extends Component {
                 <span class="text-xs text-zinc-400">Akses Cepat Pengelolaan</span>
             </div>
 
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                 <a href="{{ route('admin.learning-paths.index') }}" class="flex flex-col items-center text-center p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-yellow-400/60 hover:bg-yellow-400/5 transition-all group" wire:navigate>
                     <div class="size-10 rounded-lg bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
                         <flux:icon name="rectangle-stack" class="size-5" />
@@ -571,6 +571,14 @@ new #[Title('Dashboard')] class extends Component {
                     </div>
                     <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">Kalender Agenda</span>
                     <span class="text-[10px] text-zinc-400 mt-0.5">Batas waktu kegiatan</span>
+                </a>
+
+                <a href="{{ route('admin.settings.mail') }}" class="flex flex-col items-center text-center p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-teal-400/60 hover:bg-teal-400/5 transition-all group" wire:navigate>
+                    <div class="size-10 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                        <flux:icon name="cog-6-tooth" class="size-5" />
+                    </div>
+                    <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">Setting SMTP</span>
+                    <span class="text-[10px] text-zinc-400 mt-0.5">Konfigurasi email</span>
                 </a>
             </div>
         </div>

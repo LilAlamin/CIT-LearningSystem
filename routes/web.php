@@ -23,6 +23,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::livewire('enrollments', 'pages::admin.enrollments.index')->name('enrollments.index');
         Route::livewire('certificates', 'pages::admin.certificates.index')->name('certificates.index');
         Route::livewire('calendar-events', 'pages::admin.calendar-events.index')->name('calendar-events.index');
+        Route::livewire('settings/mail', 'pages::admin.settings.mail')->name('settings.mail');
     });
 });
 

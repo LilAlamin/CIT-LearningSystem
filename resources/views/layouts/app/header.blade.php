@@ -42,6 +42,9 @@
                             <flux:menu.item icon="calendar-days" :href="route('admin.calendar-events.index')" wire:navigate>
                                 {{ __('Agenda Kalender') }}
                             </flux:menu.item>
+                            <flux:menu.item icon="cog-6-tooth" :href="route('admin.settings.mail')" wire:navigate>
+                                {{ __('Pengaturan SMTP') }}
+                            </flux:menu.item>
                         </flux:menu>
                     </flux:dropdown>
 
@@ -154,6 +157,10 @@
 
                         <flux:sidebar.item icon="calendar-days" :href="route('admin.calendar-events.index')" :current="request()->routeIs('admin.calendar-events.*')" wire:navigate>
                             {{ __('Agenda Kalender') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="cog-6-tooth" :href="route('admin.settings.mail')" :current="request()->routeIs('admin.settings.*')" wire:navigate>
+                            {{ __('Pengaturan SMTP') }}
                         </flux:sidebar.item>
                     </flux:sidebar.group>
 
