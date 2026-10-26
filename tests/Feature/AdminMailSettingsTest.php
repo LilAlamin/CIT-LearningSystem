@@ -62,3 +62,18 @@ test('administrators can send a test email', function () {
         return $mail->hasTo('test@example.com');
     });
 });
+
+test('administrators can apply presets for mail providers', function () {
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+
+    Livewire::test('pages::admin.settings.mail')
+        ->call('applyPreset', 'gmail')
+        ->assertSet('mail_host', 'smtp.gmail.com')
+        ->assertSet('mail_port', '587')
+        ->assertSet('mail_encryption', 'tls')
+        ->call('applyPreset', 'campus')
+        ->assertSet('mail_host', 'mail.namakampus.ac.id')
+        ->assertSet('mail_port', '465')
+        ->assertSet('mail_encryption', 'ssl');
+});
