@@ -11,6 +11,7 @@ test('regular user cannot access admin routes', function () {
     $this->get(route('admin.announcements.index'))->assertForbidden();
     $this->get(route('admin.enrollments.index'))->assertForbidden();
     $this->get(route('admin.calendar-events.index'))->assertForbidden();
+    $this->get(route('admin.users.index'))->assertForbidden();
 });
 
 test('admin user can access admin routes', function () {
@@ -22,4 +23,5 @@ test('admin user can access admin routes', function () {
     $this->get(route('admin.announcements.index'))->assertOk();
     $this->get(route('admin.enrollments.index'))->assertOk();
     $this->get(route('admin.calendar-events.index'))->assertOk();
+    $this->get(route('admin.users.index'))->assertOk();
 });

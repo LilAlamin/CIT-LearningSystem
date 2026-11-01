@@ -23,6 +23,30 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
     public bool $is_active = true;
 
     /**
+     * Recommended Heroicon options for learning paths.
+     *
+     * @return array<string, string>
+     */
+    #[Computed]
+    public function availableIcons(): array
+    {
+        return [
+            'academic-cap' => 'Academic Cap',
+            'code-bracket' => 'Web / Code',
+            'device-phone-mobile' => 'Mobile App',
+            'paint-brush' => 'UI/UX Design',
+            'server-stack' => 'Cloud / DevOps',
+            'shield-check' => 'Cyber Security',
+            'cpu-chip' => 'AI / IoT',
+            'command-line' => 'Terminal / Backend',
+            'circle-stack' => 'Database / Data',
+            'globe-alt' => 'Network / Web',
+            'chart-bar' => 'Data Science',
+            'sparkles' => 'Machine Learning',
+        ];
+    }
+
+    /**
      * Get learning paths with enrollment count.
      */
     #[Computed]
@@ -59,11 +83,21 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
      */
     public function createPath(): void
     {
+        $this->icon = trim($this->icon);
+
         $validated = $this->validate([
             'title' => 'required|string|max:255',
             'slug' => 'required|string|max:255|unique:learning_paths,slug',
             'description' => 'required|string',
-            'icon' => 'required|string',
+            'icon' => [
+                'required',
+                'string',
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    if (! Flux::componentExists('icon.'.trim((string) $value))) {
+                        $fail('Icon Heroicon "'.$value.'" tidak ditemukan. Pilih dari daftar icon di bawah atau gunakan nama Heroicon yang valid.');
+                    }
+                },
+            ],
             'quota' => 'nullable|integer|min:1',
             'registration_start_at' => 'nullable|date',
             'registration_end_at' => 'nullable|date|after_or_equal:registration_start_at',
@@ -101,12 +135,21 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
     public function updatePath(): void
     {
         $path = LearningPath::findOrFail($this->editingPathId);
+        $this->icon = trim($this->icon);
 
         $validated = $this->validate([
             'title' => 'required|string|max:255',
             'slug' => 'required|string|max:255|unique:learning_paths,slug,'.$path->id,
             'description' => 'required|string',
-            'icon' => 'required|string',
+            'icon' => [
+                'required',
+                'string',
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    if (! Flux::componentExists('icon.'.trim((string) $value))) {
+                        $fail('Icon Heroicon "'.$value.'" tidak ditemukan. Pilih dari daftar icon di bawah atau gunakan nama Heroicon yang valid.');
+                    }
+                },
+            ],
             'quota' => 'nullable|integer|min:1',
             'registration_start_at' => 'nullable|date',
             'registration_end_at' => 'nullable|date|after_or_equal:registration_start_at',
@@ -279,7 +322,17 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
             <div class="grid grid-cols-2 gap-4">
                 <flux:field>
                     <flux:label>Icon Heroicon</flux:label>
-                    <flux:input wire:model="icon" placeholder="academic-cap, code-bracket, shield-check" required />
+                    <div class="flex items-center gap-2">
+                        @php
+                            $previewCreateIcon = (trim($this->icon) !== '' && \Flux\Flux::componentExists('icon.'.trim($this->icon)))
+                                ? trim($this->icon)
+                                : 'academic-cap';
+                        @endphp
+                        <span class="p-2 rounded-lg bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 border border-yellow-400/20 shrink-0">
+                            <flux:icon :name="$previewCreateIcon" class="size-5" />
+                        </span>
+                        <flux:input wire:model.live.debounce.250ms="icon" placeholder="academic-cap, code-bracket" required />
+                    </div>
                     <flux:error name="icon" />
                 </flux:field>
 
@@ -288,6 +341,23 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
                     <flux:input type="number" wire:model="quota" placeholder="Kosongkan jika tak terbatas" />
                     <flux:error name="quota" />
                 </flux:field>
+            </div>
+
+            <div class="space-y-1.5">
+                <p class="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Pilih Cepat Icon:</p>
+                <div class="flex flex-wrap gap-1.5">
+                    @foreach ($this->availableIcons as $iconKey => $iconLabel)
+                        <button
+                            type="button"
+                            wire:key="create-icon-{{ $iconKey }}"
+                            wire:click="$set('icon', '{{ $iconKey }}')"
+                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-colors {{ $this->icon === $iconKey ? 'border-yellow-400 bg-yellow-400/15 text-yellow-700 dark:text-yellow-300 font-semibold' : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300' }}"
+                        >
+                            <flux:icon :name="$iconKey" class="size-3.5" />
+                            <span>{{ $iconLabel }}</span>
+                        </button>
+                    @endforeach
+                </div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
@@ -346,7 +416,17 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
             <div class="grid grid-cols-2 gap-4">
                 <flux:field>
                     <flux:label>Icon</flux:label>
-                    <flux:input wire:model="icon" required />
+                    <div class="flex items-center gap-2">
+                        @php
+                            $previewEditIcon = (trim($this->icon) !== '' && \Flux\Flux::componentExists('icon.'.trim($this->icon)))
+                                ? trim($this->icon)
+                                : 'academic-cap';
+                        @endphp
+                        <span class="p-2 rounded-lg bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 border border-yellow-400/20 shrink-0">
+                            <flux:icon :name="$previewEditIcon" class="size-5" />
+                        </span>
+                        <flux:input wire:model.live.debounce.250ms="icon" required />
+                    </div>
                     <flux:error name="icon" />
                 </flux:field>
 
@@ -355,6 +435,23 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
                     <flux:input type="number" wire:model="quota" />
                     <flux:error name="quota" />
                 </flux:field>
+            </div>
+
+            <div class="space-y-1.5">
+                <p class="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Pilih Cepat Icon:</p>
+                <div class="flex flex-wrap gap-1.5">
+                    @foreach ($this->availableIcons as $iconKey => $iconLabel)
+                        <button
+                            type="button"
+                            wire:key="edit-icon-{{ $iconKey }}"
+                            wire:click="$set('icon', '{{ $iconKey }}')"
+                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-colors {{ $this->icon === $iconKey ? 'border-yellow-400 bg-yellow-400/15 text-yellow-700 dark:text-yellow-300 font-semibold' : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300' }}"
+                        >
+                            <flux:icon :name="$iconKey" class="size-3.5" />
+                            <span>{{ $iconLabel }}</span>
+                        </button>
+                    @endforeach
+                </div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">

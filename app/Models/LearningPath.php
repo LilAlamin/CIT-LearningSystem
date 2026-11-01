@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Flux\Flux;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -38,6 +40,25 @@ class LearningPath extends Model
             'is_active' => 'boolean',
             'quota' => 'integer',
         ];
+    }
+
+    /**
+     * Ensure the icon attribute always resolves to an existing Flux Heroicon component.
+     *
+     * @return Attribute<string, string>
+     */
+    protected function icon(): Attribute
+    {
+        return Attribute::make(
+            get: function (?string $value): string {
+                $trimmed = trim((string) $value);
+
+                return ($trimmed !== '' && Flux::componentExists('icon.'.$trimmed))
+                    ? $trimmed
+                    : 'academic-cap';
+            },
+            set: fn (?string $value): string => trim((string) $value) ?: 'academic-cap',
+        );
     }
 
     /**

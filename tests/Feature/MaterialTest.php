@@ -76,3 +76,49 @@ test('user can toggle material completion status', function () {
 
     expect($material->isCompletedBy($user->fresh()))->toBeFalse();
 });
+
+test('material reader properly parses markdown headings, lists, bold text, and code into html', function () {
+    $user = User::factory()->create();
+    $path = LearningPath::create([
+        'title' => 'Markdown Test Path',
+        'slug' => 'markdown-test-path',
+        'description' => 'Desc',
+        'is_active' => true,
+    ]);
+
+    $markdownContent = <<<MD
+# Pengenalan Android
+
+Berikut adalah daftar poin:
+* **Linux Kernel:** Mengelola driver perangkat keras.
+* **Android Runtime (ART):** Mesin eksekusi aplikasi.
+
+```kotlin
+fun main() {
+    println("Hello World")
+}
+```
+MD;
+
+    $material = Material::create([
+        'learning_path_id' => $path->id,
+        'title' => 'Modul Markdown',
+        'slug' => 'modul-markdown',
+        'content' => $markdownContent,
+        'order' => 1,
+        'read_time_minutes' => 5,
+        'is_published' => true,
+    ]);
+
+    $this->actingAs($user);
+
+    $response = $this->get(route('materials.show', [$path->slug, $material->slug]));
+    $response->assertOk();
+
+    // Verify converted HTML tags instead of raw markdown text
+    $response->assertSee('<h1>Pengenalan Android</h1>', false);
+    $response->assertSee('<strong>Linux Kernel:</strong>', false);
+    $response->assertSee('<li>', false);
+    $response->assertSee('<pre><code', false);
+    $response->assertSee('println(&quot;Hello World&quot;)', false);
+});

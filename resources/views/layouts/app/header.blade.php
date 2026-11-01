@@ -33,6 +33,9 @@
                             <flux:menu.item icon="users" :href="route('admin.enrollments.index')" wire:navigate>
                                 {{ __('Data Pendaftar') }}
                             </flux:menu.item>
+                            <flux:menu.item icon="user-group" :href="route('admin.users.index')" wire:navigate>
+                                {{ __('Kelola Pengguna') }}
+                            </flux:menu.item>
                             <flux:menu.item icon="trophy" :href="route('admin.certificates.index')" wire:navigate>
                                 {{ __('Kelola Sertifikat') }}
                             </flux:menu.item>
@@ -109,7 +112,7 @@
                     <flux:navbar.item class="!h-10 [&>div>svg]:size-5" icon="magnifying-glass" href="#" :label="__('Search')" />
                 </flux:tooltip>
                 <div class="max-lg:hidden px-2 text-xs text-zinc-400 dark:text-zinc-500 flex flex-col justify-center leading-tight">
-                    <span class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.00</span>
+                    <span class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.02</span>
                     <span class="text-[10px] text-zinc-400 dark:text-zinc-500">Develop By Academic Division CIT</span>
                 </div>
             </flux:navbar>
@@ -145,6 +148,10 @@
 
                         <flux:sidebar.item icon="users" :href="route('admin.enrollments.index')" :current="request()->routeIs('admin.enrollments.*')" wire:navigate>
                             {{ __('Data Pendaftar') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="user-group" :href="route('admin.users.index')" :current="request()->routeIs('admin.users.*')" wire:navigate>
+                            {{ __('Kelola Pengguna') }}
                         </flux:sidebar.item>
 
                         <flux:sidebar.item icon="trophy" :href="route('admin.certificates.index')" :current="request()->routeIs('admin.certificates.*')" wire:navigate>
@@ -215,7 +222,7 @@
             <flux:spacer />
 
             <div class="px-3 py-1.5 text-xs text-zinc-400 dark:text-zinc-500">
-                <div class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.00</div>
+                <div class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.02</div>
                 <div class="text-[11px] text-zinc-400 dark:text-zinc-500 leading-snug">Develop By Academic Division CIT</div>
             </div>
         </flux:sidebar>

@@ -4,6 +4,7 @@ use App\Models\LearningPath;
 use App\Models\Material;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -72,6 +73,18 @@ new #[Title('Baca Materi')] class extends Component {
         }
 
         unset($this->isCompleted, $this->completedIds);
+    }
+
+    /**
+     * Get rendered HTML from markdown content.
+     */
+    #[Computed]
+    public function renderedContent(): string
+    {
+        return Str::markdown($this->material->content ?? '', [
+            'html_input' => 'strip',
+            'allow_unsafe_links' => false,
+        ]);
     }
 
     /**
@@ -255,9 +268,249 @@ new #[Title('Baca Materi')] class extends Component {
             @endif
 
             <!-- Content Area (Markdown styled article) -->
-            <article class="prose dark:prose-invert max-w-none text-zinc-800 dark:text-zinc-200 text-sm leading-relaxed space-y-4">
-                {!! nl2br(e($material->content)) !!}
+            <article class="prose-material max-w-none">
+                {!! $this->renderedContent !!}
             </article>
+
+            <style>
+                .prose-material {
+                    color: #27272a;
+                    line-height: 1.85;
+                    font-size: 0.95rem;
+                }
+                .dark .prose-material {
+                    color: #e4e4e7;
+                }
+                .prose-material h1 {
+                    font-size: 1.75rem;
+                    font-weight: 800;
+                    letter-spacing: -0.025em;
+                    margin-top: 2rem;
+                    margin-bottom: 1rem;
+                    padding-bottom: 0.5rem;
+                    border-bottom: 2px solid rgba(250, 204, 21, 0.3);
+                    color: #09090b;
+                }
+                .dark .prose-material h1 {
+                    color: #fafafa;
+                    border-bottom-color: rgba(250, 204, 21, 0.2);
+                }
+                .prose-material h2 {
+                    font-size: 1.35rem;
+                    font-weight: 700;
+                    letter-spacing: -0.02em;
+                    margin-top: 1.85rem;
+                    margin-bottom: 0.85rem;
+                    padding-bottom: 0.35rem;
+                    border-bottom: 1px solid #e4e4e7;
+                    color: #09090b;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                .dark .prose-material h2 {
+                    color: #fafafa;
+                    border-bottom-color: #27272a;
+                }
+                .prose-material h2::before {
+                    content: "";
+                    display: inline-block;
+                    width: 4px;
+                    height: 1.1em;
+                    background-color: #facc15;
+                    border-radius: 2px;
+                }
+                .prose-material h3 {
+                    font-size: 1.15rem;
+                    font-weight: 700;
+                    margin-top: 1.5rem;
+                    margin-bottom: 0.5rem;
+                    color: #18181b;
+                }
+                .dark .prose-material h3 {
+                    color: #f4f4f5;
+                }
+                .prose-material h4 {
+                    font-size: 1rem;
+                    font-weight: 600;
+                    margin-top: 1.25rem;
+                    margin-bottom: 0.35rem;
+                    color: #27272a;
+                }
+                .dark .prose-material h4 {
+                    color: #d4d4d8;
+                }
+                .prose-material p {
+                    margin-top: 1rem;
+                    margin-bottom: 1rem;
+                    line-height: 1.85;
+                    color: #3f3f46;
+                }
+                .dark .prose-material p {
+                    color: #d4d4d8;
+                }
+                .prose-material strong,
+                .prose-material b {
+                    font-weight: 700;
+                    color: #09090b;
+                }
+                .dark .prose-material strong,
+                .dark .prose-material b {
+                    color: #ffffff;
+                }
+                .prose-material em,
+                .prose-material i {
+                    font-style: italic;
+                }
+                .prose-material ul {
+                    list-style-type: disc;
+                    padding-left: 1.6rem;
+                    margin-top: 0.85rem;
+                    margin-bottom: 0.85rem;
+                }
+                .prose-material ol {
+                    list-style-type: decimal;
+                    padding-left: 1.6rem;
+                    margin-top: 0.85rem;
+                    margin-bottom: 0.85rem;
+                }
+                .prose-material li {
+                    margin-top: 0.45rem;
+                    margin-bottom: 0.45rem;
+                    line-height: 1.75;
+                    color: #3f3f46;
+                }
+                .dark .prose-material li {
+                    color: #d4d4d8;
+                }
+                .prose-material ul > li::marker {
+                    color: #eab308;
+                }
+                .prose-material ol > li::marker {
+                    color: #eab308;
+                    font-weight: 700;
+                }
+                .prose-material blockquote {
+                    border-left: 4px solid #facc15;
+                    background: linear-gradient(to right, rgba(250, 204, 21, 0.08), transparent);
+                    padding: 1rem 1.25rem;
+                    border-radius: 0 0.75rem 0.75rem 0;
+                    margin: 1.5rem 0;
+                    font-style: italic;
+                    color: #3f3f46;
+                }
+                .dark .prose-material blockquote {
+                    background: linear-gradient(to right, rgba(250, 204, 21, 0.12), transparent);
+                    color: #d4d4d8;
+                }
+                .prose-material hr {
+                    border: 0;
+                    height: 1px;
+                    background: linear-gradient(to right, transparent, #e4e4e7, transparent);
+                    margin: 2.25rem 0;
+                }
+                .dark .prose-material hr {
+                    background: linear-gradient(to right, transparent, #27272a, transparent);
+                }
+                .prose-material :not(pre) > code {
+                    background-color: rgba(250, 204, 21, 0.12);
+                    color: #ca8a04;
+                    padding: 0.2rem 0.45rem;
+                    border-radius: 0.375rem;
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                    font-size: 0.85em;
+                    font-weight: 600;
+                    border: 1px solid rgba(250, 204, 21, 0.25);
+                }
+                .dark .prose-material :not(pre) > code {
+                    background-color: rgba(250, 204, 21, 0.15);
+                    color: #facc15;
+                    border-color: rgba(250, 204, 21, 0.3);
+                }
+                .prose-material pre {
+                    background-color: #18181b;
+                    color: #f4f4f5;
+                    padding: 1.25rem 1.5rem;
+                    border-radius: 0.875rem;
+                    overflow-x: auto;
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                    font-size: 0.875rem;
+                    line-height: 1.7;
+                    margin: 1.5rem 0;
+                    border: 1px solid #27272a;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+                }
+                .prose-material pre code {
+                    background: transparent;
+                    padding: 0;
+                    border: 0;
+                    color: inherit;
+                    font-size: inherit;
+                    font-weight: normal;
+                }
+                .prose-material a {
+                    color: #ca8a04;
+                    text-decoration: underline;
+                    text-underline-offset: 3px;
+                    font-weight: 600;
+                    transition: color 0.15s;
+                }
+                .dark .prose-material a {
+                    color: #facc15;
+                }
+                .prose-material a:hover {
+                    color: #a16207;
+                }
+                .dark .prose-material a:hover {
+                    color: #fde047;
+                }
+                .prose-material table {
+                    width: 100%;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                    margin: 1.5rem 0;
+                    border-radius: 0.75rem;
+                    overflow: hidden;
+                    border: 1px solid #e4e4e7;
+                    font-size: 0.875rem;
+                }
+                .dark .prose-material table {
+                    border-color: #27272a;
+                }
+                .prose-material th {
+                    background-color: #f4f4f5;
+                    color: #09090b;
+                    font-weight: 700;
+                    padding: 0.75rem 1rem;
+                    text-align: left;
+                    border-bottom: 1px solid #e4e4e7;
+                }
+                .dark .prose-material th {
+                    background-color: #18181b;
+                    color: #ffffff;
+                    border-bottom-color: #27272a;
+                }
+                .prose-material td {
+                    padding: 0.75rem 1rem;
+                    border-bottom: 1px solid #f4f4f5;
+                    color: #3f3f46;
+                }
+                .dark .prose-material td {
+                    border-bottom-color: #18181b;
+                    color: #d4d4d8;
+                }
+                .prose-material tr:last-child td {
+                    border-bottom: 0;
+                }
+                .prose-material img {
+                    border-radius: 0.75rem;
+                    max-width: 100%;
+                    height: auto;
+                    margin-top: 1.5rem;
+                    margin-bottom: 1.5rem;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                }
+            </style>
 
             <!-- Bottom Chapter Navigation -->
             <div class="mt-8 pt-6 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-4">

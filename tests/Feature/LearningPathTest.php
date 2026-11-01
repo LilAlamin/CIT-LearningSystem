@@ -196,3 +196,43 @@ test('user cannot unenroll from a path if registration deadline has passed', fun
     // Should still be enrolled
     expect($user->isEnrolledIn($path->id))->toBeTrue();
 });
+
+test('invalid icon in database automatically falls back to academic-cap and never causes 500 error', function () {
+    $admin = User::factory()->admin()->create();
+    $path = LearningPath::create([
+        'title' => 'Broken Icon Path',
+        'slug' => 'broken-icon-path',
+        'description' => 'Path with invalid icon in DB',
+        'icon' => 'icon-tidak-valid-sama-sekali',
+        'is_active' => true,
+    ]);
+
+    expect($path->fresh()->icon)->toBe('academic-cap');
+
+    $this->actingAs($admin);
+
+    $this->get(route('admin.learning-paths.index'))->assertOk();
+    $this->get(route('learning-paths.index'))->assertOk();
+    $this->get(route('dashboard'))->assertOk();
+});
+
+test('admin cannot save invalid heroicon name when creating or updating learning path', function () {
+    $admin = User::factory()->admin()->create();
+    $path = LearningPath::create([
+        'title' => 'Mobile App Development',
+        'slug' => 'mobile-app-development',
+        'description' => 'Mobile description',
+        'icon' => 'device-phone-mobile',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test('pages::admin.learning-paths.index')
+        ->call('editPath', $path->id)
+        ->set('icon', 'icon-ngawur-tidak-ada')
+        ->call('updatePath')
+        ->assertHasErrors(['icon']);
+
+    expect($path->fresh()->getRawOriginal('icon'))->toBe('device-phone-mobile');
+});

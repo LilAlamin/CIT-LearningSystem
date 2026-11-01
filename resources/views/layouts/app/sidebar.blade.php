@@ -33,6 +33,10 @@
                             {{ __('Data Pendaftar') }}
                         </flux:sidebar.item>
 
+                        <flux:sidebar.item icon="user-group" :href="route('admin.users.index')" :current="request()->routeIs('admin.users.*')" wire:navigate>
+                            {{ __('Kelola Pengguna') }}
+                        </flux:sidebar.item>
+
                         <flux:sidebar.item icon="trophy" :href="route('admin.certificates.index')" :current="request()->routeIs('admin.certificates.*')" wire:navigate>
                             {{ __('Kelola Sertifikat') }}
                         </flux:sidebar.item>
@@ -101,7 +105,7 @@
             <flux:spacer />
 
             <div class="px-3 py-1.5 text-xs text-zinc-400 dark:text-zinc-500">
-                <div class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.00</div>
+                <div class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.02</div>
                 <div class="text-[11px] text-zinc-400 dark:text-zinc-500 leading-snug">Develop By Academic Division CIT</div>
             </div>
 
