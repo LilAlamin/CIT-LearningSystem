@@ -3,6 +3,7 @@
 use App\Models\Certificate;
 use App\Models\LearningPath;
 use App\Models\LearningPathEnrollment;
+use App\Models\MeetingAttendance;
 use App\Models\User;
 use Flux\Flux;
 use Illuminate\Support\Carbon;
@@ -55,6 +56,7 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
     {
         $query = LearningPathEnrollment::with([
             'user.completedMaterials',
+            'user.meetingAttendances.meeting',
             'learningPath.materials',
             'user.certificates',
         ]);
@@ -108,12 +110,24 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
      */
     public function openIssueModal(int $userId, int $pathId): void
     {
-        $user = User::findOrFail($userId);
+        $user = User::with('meetingAttendances.meeting')->findOrFail($userId);
         $path = LearningPath::findOrFail($pathId);
 
         $existing = Certificate::where('user_id', $user->id)
             ->where('learning_path_id', $path->id)
             ->first();
+
+        if (! $existing && ! $user->isEligibleForCertificate($path->id)) {
+            $currentPoints = $user->pointsForPath($path->id);
+            $minPoints = MeetingAttendance::MIN_CERTIFICATE_POINTS;
+
+            Flux::toast(
+                variant: 'danger',
+                text: "Sertifikat belum dapat diterbitkan. Poin keaktifan {$user->name} saat ini {$currentPoints} pt (minimal {$minPoints} pt).",
+            );
+
+            return;
+        }
 
         $this->formUserId = $user->id;
         $this->formPathId = $path->id;
@@ -145,6 +159,25 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
      */
     public function saveCertificate(): void
     {
+        $user = User::with('meetingAttendances.meeting')->findOrFail($this->formUserId);
+        $path = LearningPath::findOrFail($this->formPathId);
+
+        $existing = Certificate::where('user_id', $user->id)
+            ->where('learning_path_id', $path->id)
+            ->first();
+
+        if (! $existing && ! $user->isEligibleForCertificate($path->id)) {
+            $currentPoints = $user->pointsForPath($path->id);
+            $minPoints = MeetingAttendance::MIN_CERTIFICATE_POINTS;
+
+            Flux::toast(
+                variant: 'danger',
+                text: "Gagal menerbitkan sertifikat: Poin keaktifan peserta ({$currentPoints} pt) belum mencapai syarat minimal {$minPoints} pt.",
+            );
+
+            return;
+        }
+
         $validated = $this->validate([
             'certificate_number' => 'required|string|max:100',
             'title' => 'required|string|max:255',
@@ -302,6 +335,7 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
                         <th class="px-5 py-3.5">Mahasiswa</th>
                         <th class="px-5 py-3.5">Path Learning</th>
                         <th class="px-5 py-3.5">Progres Modul</th>
+                        <th class="px-5 py-3.5">Poin Keaktifan</th>
                         <th class="px-5 py-3.5">Status Sertifikasi</th>
                         <th class="px-5 py-3.5">Detail Sertifikat</th>
                         <th class="px-5 py-3.5 text-right">Aksi</th>
@@ -316,6 +350,10 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
                             $completedMats = $user->completedMaterials->where('learning_path_id', $path->id)->count();
                             $matPercent = $totalMats > 0 ? (int) round(($completedMats / $totalMats) * 100) : 0;
                             $cert = $user->certificates->firstWhere('learning_path_id', $path->id);
+                            $attendanceSummary = $user->attendanceSummaryForPath($path->id);
+                            $points = $attendanceSummary['points'];
+                            $pointsPercent = (int) round(($points / $attendanceSummary['max_points']) * 100);
+                            $isEligible = $attendanceSummary['is_eligible'];
                         @endphp
                         <tr class="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
                             <td class="px-5 py-4">
@@ -344,6 +382,32 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
                                     <div class="w-full h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
                                         <div class="h-full rounded-full {{ $matPercent === 100 ? 'bg-emerald-500' : 'bg-yellow-400' }}" style="width: {{ $matPercent }}%"></div>
                                     </div>
+                                </div>
+                            </td>
+                            <td class="px-5 py-4">
+                                <div class="space-y-1.5 max-w-[170px]">
+                                    <div class="flex items-center justify-between text-[11px]">
+                                        <span class="font-extrabold {{ $isEligible ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-800 dark:text-zinc-200' }}">
+                                            {{ $points }} / 600 Poin
+                                        </span>
+                                        <span class="text-[10px] text-zinc-400">
+                                            {{ $attendanceSummary['hadir'] }}H • {{ $attendanceSummary['izin'] }}I
+                                        </span>
+                                    </div>
+                                    <div class="w-full h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+                                        <div class="h-full rounded-full {{ $isEligible ? 'bg-emerald-500' : 'bg-amber-400' }}" style="width: {{ $pointsPercent }}%"></div>
+                                    </div>
+                                    @if ($isEligible)
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                            <flux:icon name="check-circle" class="size-3" />
+                                            Memenuhi Syarat (≥ 500 Pt)
+                                        </span>
+                                    @else
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+                                            <flux:icon name="exclamation-circle" class="size-3" />
+                                            Kurang {{ 500 - $points }} Pt (Min. 500 Pt)
+                                        </span>
+                                    @endif
                                 </div>
                             </td>
                             <td class="px-5 py-4">
@@ -383,9 +447,19 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
                                         <flux:button wire:click="revokeCertificate({{ $cert->id }})" wire:confirm="Yakin ingin mencabut/menghapus sertifikat ini?" variant="danger" size="xs" icon="trash">
                                             Cabut
                                         </flux:button>
-                                    @else
+                                    @elseif ($isEligible)
                                         <flux:button wire:click="openIssueModal({{ $user->id }}, {{ $path->id }})" variant="primary" size="xs" icon="trophy">
                                             Berikan Sertifikat
+                                        </flux:button>
+                                    @else
+                                        <flux:button
+                                            wire:click="openIssueModal({{ $user->id }}, {{ $path->id }})"
+                                            variant="subtle"
+                                            size="xs"
+                                            icon="lock-closed"
+                                            title="Syarat minimal 500 Poin Keaktifan belum terpenuhi"
+                                        >
+                                            Min. 500 Poin
                                         </flux:button>
                                     @endif
                                 </div>
@@ -393,7 +467,7 @@ new #[Title('Kelola Sertifikat & Kelulusan - Admin')] class extends Component {
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="px-5 py-10 text-center text-zinc-400 italic">
+                            <td colspan="7" class="px-5 py-10 text-center text-zinc-400 italic">
                                 Belum ada data mahasiswa yang terdaftar di kelas dengan filter saat ini.
                             </td>
                         </tr>

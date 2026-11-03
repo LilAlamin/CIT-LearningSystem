@@ -57,13 +57,18 @@ new #[Title('Alur & Rangkaian Pertemuan')] class extends Component {
     #[Computed]
     public function activePath(): ?LearningPath
     {
+        $relations = [
+            'meetings.materials',
+            'meetings.attendances' => fn ($q) => $q->where('user_id', Auth::id()),
+        ];
+
         if ($this->selectedPathId && $this->learningPaths->contains('id', $this->selectedPathId)) {
-            return LearningPath::with(['meetings.materials'])->find($this->selectedPathId);
+            return LearningPath::with($relations)->find($this->selectedPathId);
         }
 
         $first = $this->learningPaths->first();
 
-        return $first ? LearningPath::with(['meetings.materials'])->find($first->id) : null;
+        return $first ? LearningPath::with($relations)->find($first->id) : null;
     }
 
     /**
@@ -137,6 +142,7 @@ new #[Title('Alur & Rangkaian Pertemuan')] class extends Component {
             $completedMeetings = $meetings->filter(fn($m) => $m->isPast())->count();
             $upcomingMeetings = $totalMeetings - $completedMeetings;
             $isEnrolledInActive = in_array($this->activePath->id, $this->enrolledPathIds, true);
+            $userPoints = auth()->user()->pointsForPath($this->activePath->id);
         @endphp
 
         <!-- Path Header Card -->
@@ -161,7 +167,7 @@ new #[Title('Alur & Rangkaian Pertemuan')] class extends Component {
                     </p>
                 </div>
 
-                <div class="flex items-center gap-4 bg-zinc-50 dark:bg-zinc-800/60 p-4 rounded-xl border border-zinc-200/60 dark:border-zinc-700/60 text-xs">
+                <div class="flex flex-wrap items-center gap-4 bg-zinc-50 dark:bg-zinc-800/60 p-4 rounded-xl border border-zinc-200/60 dark:border-zinc-700/60 text-xs">
                     <div>
                         <p class="text-zinc-500 dark:text-zinc-400">Total Sesi</p>
                         <p class="text-base font-bold text-zinc-900 dark:text-zinc-100">{{ $totalMeetings }} Pertemuan</p>
@@ -175,6 +181,13 @@ new #[Title('Alur & Rangkaian Pertemuan')] class extends Component {
                     <div>
                         <p class="text-zinc-500 dark:text-zinc-400">Mendatang</p>
                         <p class="text-base font-bold text-yellow-600 dark:text-yellow-400">{{ $upcomingMeetings }} Sesi</p>
+                    </div>
+                    <div class="w-px h-8 bg-zinc-200 dark:bg-zinc-700"></div>
+                    <div>
+                        <p class="text-zinc-500 dark:text-zinc-400">Poin Keaktifan</p>
+                        <p class="text-base font-bold {{ $userPoints >= 500 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400' }}">
+                            {{ $userPoints }} / 600 Pt
+                        </p>
                     </div>
                 </div>
             </div>
@@ -200,9 +213,12 @@ new #[Title('Alur & Rangkaian Pertemuan')] class extends Component {
 
                     <!-- Meeting Card -->
                     <div class="flex-1 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 sm:p-6 shadow-xs space-y-4 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
+                        @php
+                            $myAttendance = $meeting->attendances->first();
+                        @endphp
                         <!-- Top Meta Header -->
                         <div class="flex flex-wrap items-center justify-between gap-2">
-                            <div class="flex items-center gap-2">
+                            <div class="flex flex-wrap items-center gap-2">
                                 <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-400/20 text-yellow-700 dark:text-yellow-300">
                                     Pertemuan {{ $meeting->meeting_number }}
                                 </span>
@@ -221,6 +237,22 @@ new #[Title('Alur & Rangkaian Pertemuan')] class extends Component {
                                     <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
                                         Sesi Mendatang
                                     </span>
+                                @endif
+
+                                @if ($myAttendance)
+                                    @if ($myAttendance->status === 'hadir')
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                                            ✓ Hadir (+{{ $myAttendance->points }} Poin)
+                                        </span>
+                                    @elseif ($myAttendance->status === 'izin')
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                                            ! Izin (+{{ $myAttendance->points }} Poin)
+                                        </span>
+                                    @elseif ($myAttendance->status === 'alpha')
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/15 text-red-700 dark:text-red-400 border border-red-500/20">
+                                            ✕ Tidak Hadir (0 Poin)
+                                        </span>
+                                    @endif
                                 @endif
                             </div>
 

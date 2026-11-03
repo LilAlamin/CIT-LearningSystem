@@ -86,7 +86,7 @@ test('material reader properly parses markdown headings, lists, bold text, and c
         'is_active' => true,
     ]);
 
-    $markdownContent = <<<MD
+    $markdownContent = <<<'MD'
 # Pengenalan Android
 
 Berikut adalah daftar poin:

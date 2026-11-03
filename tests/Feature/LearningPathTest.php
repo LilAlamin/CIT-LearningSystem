@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AppSetting;
 use App\Models\LearningPath;
 use App\Models\LearningPathEnrollment;
 use App\Models\User;
@@ -104,7 +105,9 @@ test('admin can create learning path with selection period', function () {
     expect(LearningPath::where('slug', 'devops-sre')->exists())->toBeTrue();
 });
 
-test('user can enroll in multiple learning paths freely', function () {
+test('by default user can only choose one learning path', function () {
+    AppSetting::set('allow_dual_path_enrollment', '0');
+
     $user = User::factory()->create();
 
     $path1 = LearningPath::create([
@@ -135,9 +138,81 @@ test('user can enroll in multiple learning paths freely', function () {
         ->call('selectPath', $path1->id)
         ->call('selectPath', $path2->id);
 
+    // Only path1 should be enrolled, path2 rejected because limit is 1
+    expect($user->fresh()->enrollments()->count())->toBe(1);
+    expect($user->isEnrolledIn($path1->id))->toBeTrue();
+    expect($user->isEnrolledIn($path2->id))->toBeFalse();
+});
+
+test('user can choose up to two learning paths when dual path setting is enabled', function () {
+    AppSetting::set('allow_dual_path_enrollment', '1');
+
+    $user = User::factory()->create();
+
+    $path1 = LearningPath::create([
+        'title' => 'Web Dev',
+        'slug' => 'web-dev',
+        'description' => 'Web path',
+        'icon' => 'code-bracket',
+        'quota' => 30,
+        'registration_start_at' => now()->subDay(),
+        'registration_end_at' => now()->addDays(5),
+        'is_active' => true,
+    ]);
+
+    $path2 = LearningPath::create([
+        'title' => 'Mobile Dev',
+        'slug' => 'mobile-dev',
+        'description' => 'Mobile path',
+        'icon' => 'device-phone-mobile',
+        'quota' => 30,
+        'registration_start_at' => now()->subDay(),
+        'registration_end_at' => now()->addDays(5),
+        'is_active' => true,
+    ]);
+
+    $path3 = LearningPath::create([
+        'title' => 'Cloud Computing',
+        'slug' => 'cloud-computing',
+        'description' => 'Cloud path',
+        'icon' => 'server-stack',
+        'quota' => 30,
+        'registration_start_at' => now()->subDay(),
+        'registration_end_at' => now()->addDays(5),
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($user);
+
+    Livewire::test('pages::learning-paths.index')
+        ->call('selectPath', $path1->id)
+        ->call('selectPath', $path2->id)
+        ->call('selectPath', $path3->id);
+
+    // Should enroll in path1 and path2, but path3 rejected because limit is 2
     expect($user->fresh()->enrollments()->count())->toBe(2);
     expect($user->isEnrolledIn($path1->id))->toBeTrue();
     expect($user->isEnrolledIn($path2->id))->toBeTrue();
+    expect($user->isEnrolledIn($path3->id))->toBeFalse();
+});
+
+test('admin can toggle dual path enrollment setting', function () {
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+
+    AppSetting::set('allow_dual_path_enrollment', '0');
+
+    Livewire::test('pages::admin.learning-paths.index')
+        ->assertSet('allowDualPaths', false)
+        ->set('allowDualPaths', true);
+
+    expect(AppSetting::get('allow_dual_path_enrollment'))->toBe('1');
+
+    Livewire::test('pages::admin.learning-paths.index')
+        ->assertSet('allowDualPaths', true)
+        ->set('allowDualPaths', false);
+
+    expect(AppSetting::get('allow_dual_path_enrollment'))->toBe('0');
 });
 
 test('user can unenroll from a path within registration period', function () {

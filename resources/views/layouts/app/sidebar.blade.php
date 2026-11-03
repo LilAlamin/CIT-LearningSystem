@@ -71,6 +71,50 @@
                             {{ __('Papan Pengumuman') }}
                         </flux:sidebar.item>
                     </flux:sidebar.group>
+                @elseif (auth()->user()?->isPj())
+                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                        {{ __('Dashboard') }}
+                    </flux:sidebar.item>
+
+                    <flux:sidebar.group :heading="__('Penanggung Jawab Path')" class="grid mt-3">
+                        <flux:sidebar.item icon="video-camera" :href="route('admin.meetings.index')" :current="request()->routeIs('admin.meetings.*')" wire:navigate>
+                            {{ __('Kelola Pertemuan') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="document-text" :href="route('admin.materials.index')" :current="request()->routeIs('admin.materials.*')" wire:navigate>
+                            {{ __('Kelola Materi') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="users" :href="route('admin.enrollments.index')" :current="request()->routeIs('admin.enrollments.*')" wire:navigate>
+                            {{ __('Data Pendaftar') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="envelope" :href="route('admin.announcements.index')" :current="request()->routeIs('admin.announcements.*')" wire:navigate>
+                            {{ __('Pengumuman & Email') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="calendar-days" :href="route('admin.calendar-events.index')" :current="request()->routeIs('admin.calendar-events.*')" wire:navigate>
+                            {{ __('Agenda Kalender') }}
+                        </flux:sidebar.item>
+                    </flux:sidebar.group>
+
+                    <flux:sidebar.group :expandable="true" :expanded="request()->routeIs('materials.*') || request()->routeIs('meetings.*') || request()->routeIs('learning-paths.*') || request()->routeIs('announcements.*')" :heading="__('Pratinjau Tampilan Siswa')" icon="eye" class="mt-4">
+                        <flux:sidebar.item icon="academic-cap" :href="route('learning-paths.index')" :current="request()->routeIs('learning-paths.*')" wire:navigate>
+                            {{ __('Katalog Path Belajar') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="calendar-days" :href="route('meetings.index')" :current="request()->routeIs('meetings.*')" wire:navigate>
+                            {{ __('Alur Pertemuan Siswa') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="book-open" :href="route('materials.index')" :current="request()->routeIs('materials.*')" wire:navigate>
+                            {{ __('Modul & Materi Siswa') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="megaphone" :href="route('announcements.index')" :current="request()->routeIs('announcements.*')" wire:navigate>
+                            {{ __('Papan Pengumuman') }}
+                        </flux:sidebar.item>
+                    </flux:sidebar.group>
                 @else
                     <flux:sidebar.group :heading="__('Learning Platform')" class="grid">
                         <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
@@ -105,7 +149,7 @@
             <flux:spacer />
 
             <div class="px-3 py-1.5 text-xs text-zinc-400 dark:text-zinc-500">
-                <div class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.02</div>
+                <div class="font-medium text-zinc-500 dark:text-zinc-400">Cit LMS Version 1.03</div>
                 <div class="text-[11px] text-zinc-400 dark:text-zinc-500 leading-snug">Develop By Academic Division CIT</div>
             </div>
 

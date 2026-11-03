@@ -122,6 +122,16 @@ class LearningPath extends Model
     }
 
     /**
+     * Get the Penanggung Jawab (PJ) users for this learning path.
+     *
+     * @return BelongsToMany<User, $this>
+     */
+    public function pjs(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'learning_path_pjs');
+    }
+
+    /**
      * Get announcements for this learning path.
      *
      * @return HasMany<Announcement, $this>

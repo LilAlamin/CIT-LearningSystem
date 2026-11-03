@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\LearningPath;
 use App\Models\User;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
@@ -13,7 +14,7 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
     public string $search = '';
 
     #[Url]
-    public string $roleFilter = 'all'; // all, admin, user
+    public string $roleFilter = 'all'; // all, admin, pj, user
 
     #[Url]
     public string $statusFilter = 'all'; // all, verified, unverified
@@ -26,6 +27,7 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
     public string $name = '';
     public string $email = '';
     public string $role = 'user';
+    public array $selected_paths = [];
     public string $major = '';
     public string $batch_year = '';
     public string $password = '';
@@ -36,6 +38,7 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
     public string $edit_name = '';
     public string $edit_email = '';
     public string $edit_role = 'user';
+    public array $edit_selected_paths = [];
     public string $edit_major = '';
     public string $edit_batch_year = '';
     public string $edit_password = '';
@@ -43,12 +46,21 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
     public bool $edit_is_verified = true;
 
     /**
+     * Get learning paths for PJ assignment.
+     */
+    #[Computed]
+    public function learningPaths()
+    {
+        return LearningPath::orderBy('title')->get();
+    }
+
+    /**
      * Get users list with optional filters.
      */
     #[Computed]
     public function users()
     {
-        $query = User::withCount(['enrollments', 'completedMaterials']);
+        $query = User::with(['managedLearningPaths'])->withCount(['enrollments', 'completedMaterials']);
 
         if (! empty($this->search)) {
             $query->where(function ($q) {
@@ -61,6 +73,8 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
 
         if ($this->roleFilter === 'admin') {
             $query->where('role', 'admin');
+        } elseif ($this->roleFilter === 'pj') {
+            $query->where('role', 'pj');
         } elseif ($this->roleFilter === 'user') {
             $query->where('role', 'user');
         }
@@ -83,6 +97,7 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
         return [
             'total' => User::count(),
             'admins' => User::where('role', 'admin')->count(),
+            'pjs' => User::where('role', 'pj')->count(),
             'students' => User::where('role', 'user')->count(),
             'enrolledStudents' => User::where('role', 'user')->has('enrollments')->count(),
         ];
@@ -93,26 +108,34 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
      */
     public function openCreateModal(): void
     {
-        $this->reset(['name', 'email', 'role', 'major', 'batch_year', 'password', 'password_confirmation', 'is_verified']);
+        $this->reset(['name', 'email', 'role', 'major', 'batch_year', 'password', 'password_confirmation', 'is_verified', 'selected_paths']);
         $this->role = 'user';
         $this->is_verified = true;
+        $this->selected_paths = [];
         $this->resetValidation();
         $this->showCreateModal = true;
     }
 
     /**
-     * Create a new user (admin or student).
+     * Create a new user (admin, pj, or student).
      */
     public function createUser(): void
     {
-        $validated = $this->validate([
+        $rules = [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users,email',
-            'role' => 'required|in:admin,user',
+            'role' => 'required|in:admin,pj,user',
             'major' => 'nullable|string|max:255',
             'batch_year' => 'nullable|string|max:10',
             'password' => 'required|string|min:8|confirmed',
-        ]);
+        ];
+
+        if ($this->role === 'pj') {
+            $rules['selected_paths'] = 'required|array|min:1';
+            $rules['selected_paths.*'] = 'exists:learning_paths,id';
+        }
+
+        $validated = $this->validate($rules);
 
         $user = new User();
         $user->name = $validated['name'];
@@ -128,10 +151,18 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
 
         $user->save();
 
+        if ($user->isPj()) {
+            $user->managedLearningPaths()->sync($this->selected_paths);
+        }
+
         $this->showCreateModal = false;
         Flux::toast(variant: 'success', text: __('Pengguna baru :name (:role) berhasil ditambahkan!', [
             'name' => $user->name,
-            'role' => $user->isAdmin() ? 'Admin' : 'Peserta',
+            'role' => match ($user->role) {
+                'admin' => 'Admin',
+                'pj' => 'PJ Path',
+                default => 'Peserta',
+            },
         ]));
     }
 
@@ -140,11 +171,12 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
      */
     public function editUser(int $id): void
     {
-        $user = User::findOrFail($id);
+        $user = User::with('managedLearningPaths')->findOrFail($id);
         $this->editingUserId = $user->id;
         $this->edit_name = $user->name;
         $this->edit_email = $user->email;
         $this->edit_role = $user->role;
+        $this->edit_selected_paths = $user->managedLearningPaths->pluck('id')->toArray();
         $this->edit_major = (string) ($user->major ?? '');
         $this->edit_batch_year = (string) ($user->batch_year ?? '');
         $this->edit_password = '';
@@ -165,10 +197,15 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
         $rules = [
             'edit_name' => 'required|string|max:255',
             'edit_email' => 'required|string|email|max:255|unique:users,email,'.$user->id,
-            'edit_role' => 'required|in:admin,user',
+            'edit_role' => 'required|in:admin,pj,user',
             'edit_major' => 'nullable|string|max:255',
             'edit_batch_year' => 'nullable|string|max:10',
         ];
+
+        if ($this->edit_role === 'pj') {
+            $rules['edit_selected_paths'] = 'required|array|min:1';
+            $rules['edit_selected_paths.*'] = 'exists:learning_paths,id';
+        }
 
         if (! empty($this->edit_password)) {
             $rules['edit_password'] = 'required|string|min:8|confirmed';
@@ -193,6 +230,12 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
         }
 
         $user->save();
+
+        if ($user->isPj()) {
+            $user->managedLearningPaths()->sync($this->edit_selected_paths);
+        } else {
+            $user->managedLearningPaths()->detach();
+        }
 
         $this->showEditModal = false;
         Flux::toast(variant: 'success', text: __('Data pengguna :name berhasil diperbarui!', ['name' => $user->name]));
@@ -258,7 +301,7 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
         </div>
     </div>
 
-    <!-- Stats Bar (4 KPI cards) -->
+    <!-- Stats Bar (5 KPI cards) -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
             <div class="flex items-center justify-between">
@@ -289,27 +332,27 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
         <div class="p-4 rounded-xl border border-sky-500/30 bg-sky-500/5 dark:bg-sky-500/10 shadow-xs">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-xs text-sky-600 dark:text-sky-400 font-medium">Peserta / Mahasiswa</p>
-                    <p class="text-2xl font-bold text-sky-700 dark:text-sky-300 mt-1">{{ $this->stats['students'] }}</p>
+                    <p class="text-xs text-sky-600 dark:text-sky-400 font-medium">Penanggung Jawab (PJ)</p>
+                    <p class="text-2xl font-bold text-sky-700 dark:text-sky-300 mt-1">{{ $this->stats['pjs'] }}</p>
                 </div>
                 <div class="size-10 rounded-xl bg-sky-500/20 text-sky-600 dark:text-sky-300 flex items-center justify-center font-bold">
+                    <flux:icon name="user-circle" class="size-5" />
+                </div>
+            </div>
+            <p class="text-[11px] text-sky-600/70 dark:text-sky-400/70 mt-2">Pengampu alur path tertentu</p>
+        </div>
+
+        <div class="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10 shadow-xs">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs text-amber-600 dark:text-amber-400 font-medium">Peserta / Mahasiswa</p>
+                    <p class="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1">{{ $this->stats['students'] }}</p>
+                </div>
+                <div class="size-10 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold">
                     <flux:icon name="academic-cap" class="size-5" />
                 </div>
             </div>
-            <p class="text-[11px] text-sky-600/70 dark:text-sky-400/70 mt-2">Role mahasiswa pembelajar</p>
-        </div>
-
-        <div class="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-500/10 shadow-xs">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Sudah Memilih Path</p>
-                    <p class="text-2xl font-bold text-emerald-700 dark:text-emerald-300 mt-1">{{ $this->stats['enrolledStudents'] }}</p>
-                </div>
-                <div class="size-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
-                    <flux:icon name="check-circle" class="size-5" />
-                </div>
-            </div>
-            <p class="text-[11px] text-emerald-600/70 dark:text-emerald-400/70 mt-2">Mahasiswa dengan alur aktif</p>
+            <p class="text-[11px] text-amber-600/70 dark:text-amber-400/70 mt-2">{{ $this->stats['enrolledStudents'] }} telah memilih path</p>
         </div>
     </div>
 
@@ -326,10 +369,11 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
         </div>
 
         <div class="flex items-center gap-3 w-full sm:w-auto">
-            <div class="w-48">
+            <div class="w-52">
                 <flux:select wire:model.live="roleFilter" size="sm">
                     <option value="all">Semua Role</option>
                     <option value="admin">Administrator</option>
+                    <option value="pj">Penanggung Jawab (PJ)</option>
                     <option value="user">Peserta / Mahasiswa</option>
                 </flux:select>
             </div>
@@ -393,8 +437,18 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
                                         <flux:icon name="shield-check" class="size-3" />
                                         <span>Administrator</span>
                                     </span>
+                                @elseif ($u->isPj())
+                                    <div class="space-y-1">
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                                            <flux:icon name="user-circle" class="size-3" />
+                                            <span>PJ Path</span>
+                                        </span>
+                                        <div class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
+                                            {{ $u->managedLearningPaths->pluck('title')->join(', ') ?: 'Belum dihubungkan ke path' }}
+                                        </div>
+                                    </div>
                                 @else
-                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                                         <flux:icon name="academic-cap" class="size-3" />
                                         <span>Peserta</span>
                                     </span>
@@ -404,7 +458,9 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
                             <!-- Jurusan & Angkatan -->
                             <td class="px-5 py-4">
                                 @if ($u->isAdmin())
-                                    <p class="text-zinc-500 dark:text-zinc-400 italic text-[11px]">Staf / Admin CIT</p>
+                                    <p class="text-zinc-500 dark:text-zinc-400 italic text-[11px]">Administrator CIT</p>
+                                @elseif ($u->isPj())
+                                    <p class="text-zinc-500 dark:text-zinc-400 italic text-[11px]">Penanggung Jawab Path</p>
                                 @else
                                     <p class="text-zinc-800 dark:text-zinc-200 font-medium">{{ $u->major ?? '-' }}</p>
                                     <p class="text-zinc-400 text-[11px]">Angkatan: {{ $u->batch_year ?? '-' }}</p>
@@ -517,10 +573,27 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
                 <flux:label>Hak Akses (Role)</flux:label>
                 <flux:select wire:model.live="role" required>
                     <option value="user">Peserta / Mahasiswa (Akses Belajar & Pemilihan Path)</option>
+                    <option value="pj">Penanggung Jawab Path (PJ) - Kelola Materi, Pertemuan, & Pendaftar Path</option>
                     <option value="admin">Administrator (Akses Penuh Kelola Sistem LMS)</option>
                 </flux:select>
                 <flux:error name="role" />
             </flux:field>
+
+            @if ($role === 'pj')
+                <flux:field>
+                    <flux:label>Path Learning yang Diampu <span class="text-red-500">*</span></flux:label>
+                    <flux:description>Pilih satu atau beberapa path yang menjadi tanggung jawab PJ ini.</flux:description>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40">
+                        @foreach ($this->learningPaths as $lp)
+                            <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-zinc-800 border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 cursor-pointer text-xs transition-colors">
+                                <input type="checkbox" wire:model="selected_paths" value="{{ $lp->id }}" class="rounded text-yellow-500 focus:ring-yellow-400 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700">
+                                <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ $lp->title }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                    <flux:error name="selected_paths" />
+                </flux:field>
+            @endif
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 {{ $role === 'admin' ? 'opacity-60' : '' }}">
                 <flux:field>
@@ -596,10 +669,27 @@ new #[Title('Kelola Pengguna - Admin')] class extends Component {
                 <flux:label>Hak Akses (Role)</flux:label>
                 <flux:select wire:model.live="edit_role" required>
                     <option value="user">Peserta / Mahasiswa</option>
+                    <option value="pj">Penanggung Jawab Path (PJ)</option>
                     <option value="admin">Administrator</option>
                 </flux:select>
                 <flux:error name="edit_role" />
             </flux:field>
+
+            @if ($edit_role === 'pj')
+                <flux:field>
+                    <flux:label>Path Learning yang Diampu <span class="text-red-500">*</span></flux:label>
+                    <flux:description>Pilih satu atau beberapa path yang menjadi tanggung jawab PJ ini.</flux:description>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40">
+                        @foreach ($this->learningPaths as $lp)
+                            <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-zinc-800 border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 cursor-pointer text-xs transition-colors">
+                                <input type="checkbox" wire:model="edit_selected_paths" value="{{ $lp->id }}" class="rounded text-yellow-500 focus:ring-yellow-400 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700">
+                                <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ $lp->title }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                    <flux:error name="edit_selected_paths" />
+                </flux:field>
+            @endif
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <flux:field>

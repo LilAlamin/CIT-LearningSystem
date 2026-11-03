@@ -71,6 +71,55 @@
                             </flux:menu.item>
                         </flux:menu>
                     </flux:dropdown>
+                @elseif (auth()->user()?->isPj())
+                    <flux:navbar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                        {{ __('Dashboard') }}
+                    </flux:navbar.item>
+
+                    <flux:dropdown class="max-lg:hidden">
+                        <flux:navbar.item icon="user-circle" icon-trailing="chevron-down" :current="request()->routeIs('admin.*')">
+                            {{ __('Menu PJ') }}
+                        </flux:navbar.item>
+
+                        <flux:menu>
+                            <flux:menu.item icon="video-camera" :href="route('admin.meetings.index')" wire:navigate>
+                                {{ __('Kelola Pertemuan') }}
+                            </flux:menu.item>
+                            <flux:menu.item icon="document-text" :href="route('admin.materials.index')" wire:navigate>
+                                {{ __('Kelola Materi') }}
+                            </flux:menu.item>
+                            <flux:menu.item icon="users" :href="route('admin.enrollments.index')" wire:navigate>
+                                {{ __('Data Pendaftar') }}
+                            </flux:menu.item>
+                            <flux:menu.item icon="envelope" :href="route('admin.announcements.index')" wire:navigate>
+                                {{ __('Pengumuman & Email') }}
+                            </flux:menu.item>
+                            <flux:menu.item icon="calendar-days" :href="route('admin.calendar-events.index')" wire:navigate>
+                                {{ __('Agenda Kalender') }}
+                            </flux:menu.item>
+                        </flux:menu>
+                    </flux:dropdown>
+
+                    <flux:dropdown class="max-lg:hidden">
+                        <flux:navbar.item icon="eye" icon-trailing="chevron-down" :current="request()->routeIs('learning-paths.*') || request()->routeIs('materials.*') || request()->routeIs('meetings.*') || request()->routeIs('announcements.*')">
+                            {{ __('Pratinjau Siswa') }}
+                        </flux:navbar.item>
+
+                        <flux:menu>
+                            <flux:menu.item icon="academic-cap" :href="route('learning-paths.index')" wire:navigate>
+                                {{ __('Katalog Path') }}
+                            </flux:menu.item>
+                            <flux:menu.item icon="calendar-days" :href="route('meetings.index')" wire:navigate>
+                                {{ __('Alur Pertemuan') }}
+                            </flux:menu.item>
+                            <flux:menu.item icon="book-open" :href="route('materials.index')" wire:navigate>
+                                {{ __('Modul & Materi') }}
+                            </flux:menu.item>
+                            <flux:menu.item icon="megaphone" :href="route('announcements.index')" wire:navigate>
+                                {{ __('Papan Pengumuman') }}
+                            </flux:menu.item>
+                        </flux:menu>
+                    </flux:dropdown>
                 @else
                     <flux:navbar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
                         {{ __('Dashboard') }}
@@ -168,6 +217,50 @@
 
                         <flux:sidebar.item icon="cog-6-tooth" :href="route('admin.settings.mail')" :current="request()->routeIs('admin.settings.*')" wire:navigate>
                             {{ __('Pengaturan SMTP') }}
+                        </flux:sidebar.item>
+                    </flux:sidebar.group>
+
+                    <flux:sidebar.group :expandable="true" :expanded="request()->routeIs('materials.*') || request()->routeIs('meetings.*') || request()->routeIs('learning-paths.*') || request()->routeIs('announcements.*')" :heading="__('Pratinjau Tampilan Siswa')" icon="eye" class="mt-4">
+                        <flux:sidebar.item icon="academic-cap" :href="route('learning-paths.index')" :current="request()->routeIs('learning-paths.*')" wire:navigate>
+                            {{ __('Katalog Path Belajar') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="calendar-days" :href="route('meetings.index')" :current="request()->routeIs('meetings.*')" wire:navigate>
+                            {{ __('Alur Pertemuan Siswa') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="book-open" :href="route('materials.index')" :current="request()->routeIs('materials.*')" wire:navigate>
+                            {{ __('Modul & Materi Siswa') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="megaphone" :href="route('announcements.index')" :current="request()->routeIs('announcements.*')" wire:navigate>
+                            {{ __('Papan Pengumuman') }}
+                        </flux:sidebar.item>
+                    </flux:sidebar.group>
+                @elseif (auth()->user()?->isPj())
+                    <flux:sidebar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                        {{ __('Dashboard') }}
+                    </flux:sidebar.item>
+
+                    <flux:sidebar.group :heading="__('Penanggung Jawab Path')" class="grid mt-3">
+                        <flux:sidebar.item icon="video-camera" :href="route('admin.meetings.index')" :current="request()->routeIs('admin.meetings.*')" wire:navigate>
+                            {{ __('Kelola Pertemuan') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="document-text" :href="route('admin.materials.index')" :current="request()->routeIs('admin.materials.*')" wire:navigate>
+                            {{ __('Kelola Materi') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="users" :href="route('admin.enrollments.index')" :current="request()->routeIs('admin.enrollments.*')" wire:navigate>
+                            {{ __('Data Pendaftar') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="envelope" :href="route('admin.announcements.index')" :current="request()->routeIs('admin.announcements.*')" wire:navigate>
+                            {{ __('Pengumuman & Email') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item icon="calendar-days" :href="route('admin.calendar-events.index')" :current="request()->routeIs('admin.calendar-events.*')" wire:navigate>
+                            {{ __('Agenda Kalender') }}
                         </flux:sidebar.item>
                     </flux:sidebar.group>
 

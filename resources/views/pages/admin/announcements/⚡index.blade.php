@@ -25,21 +25,33 @@ new #[Title('Pengumuman & Push Email - Admin')] class extends Component {
     public bool $sendEmailImmediately = true;
 
     /**
-     * Get learning paths for target dropdown.
+     * Get learning paths for target dropdown (scoped for PJ).
      */
     #[Computed]
     public function learningPaths()
     {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            return $user->managedLearningPaths()->orderBy('title')->get();
+        }
+
         return LearningPath::orderBy('title')->get();
     }
 
     /**
-     * Get all announcements.
+     * Get all announcements (scoped for PJ).
      */
     #[Computed]
     public function announcements()
     {
-        return Announcement::with('learningPath', 'creator')->latest()->get();
+        $user = Auth::user();
+        $query = Announcement::with('learningPath', 'creator');
+
+        if ($user && $user->isPj()) {
+            $query->whereIn('learning_path_id', $user->managedLearningPathIds());
+        }
+
+        return $query->latest()->get();
     }
 
     /**
@@ -48,6 +60,10 @@ new #[Title('Pengumuman & Push Email - Admin')] class extends Component {
     public function openCreateModal(): void
     {
         $this->reset(['title', 'content', 'learning_path_id', 'editingAnnouncementId']);
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            $this->learning_path_id = $user->managedLearningPathIds()[0] ?? null;
+        }
         $this->priority = 'normal';
         $this->sendEmailImmediately = true;
         $this->showCreateModal = true;
@@ -58,10 +74,15 @@ new #[Title('Pengumuman & Push Email - Admin')] class extends Component {
      */
     public function createAnnouncement(): void
     {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            abort_unless($user->canManagePath((int) $this->learning_path_id), 403, 'PJ hanya dapat membuat pengumuman untuk path yang diampunya.');
+        }
+
         $validated = $this->validate([
             'title' => 'required|string|max:255',
             'content' => 'required|string',
-            'learning_path_id' => 'nullable|exists:learning_paths,id',
+            'learning_path_id' => ($user && $user->isPj()) ? 'required|exists:learning_paths,id' : 'nullable|exists:learning_paths,id',
             'priority' => 'required|in:normal,important,urgent',
         ]);
 
@@ -96,6 +117,10 @@ new #[Title('Pengumuman & Push Email - Admin')] class extends Component {
     public function sendEmail(int $id): void
     {
         $announcement = Announcement::findOrFail($id);
+        if (Auth::user()->isPj()) {
+            abort_unless(Auth::user()->canManagePath((int) $announcement->learning_path_id), 403);
+        }
+
         $count = $this->dispatchEmailNotification($announcement);
 
         Flux::toast(
@@ -111,7 +136,7 @@ new #[Title('Pengumuman & Push Email - Admin')] class extends Component {
     {
         // Find targeted users
         if ($announcement->learning_path_id) {
-            $recipients = User::whereHas('enrollment', function ($q) use ($announcement) {
+            $recipients = User::whereHas('enrollments', function ($q) use ($announcement) {
                 $q->where('learning_path_id', $announcement->learning_path_id);
             })->get();
         } else {
@@ -144,6 +169,10 @@ new #[Title('Pengumuman & Push Email - Admin')] class extends Component {
     public function deleteAnnouncement(int $id): void
     {
         $ann = Announcement::findOrFail($id);
+        if (Auth::user()->isPj()) {
+            abort_unless(Auth::user()->canManagePath((int) $ann->learning_path_id), 403);
+        }
+
         $ann->delete();
 
         Flux::toast(variant: 'warning', text: __('Pengumuman telah dihapus.'));
@@ -271,7 +300,9 @@ new #[Title('Pengumuman & Push Email - Admin')] class extends Component {
                 <flux:field>
                     <flux:label>Target Penerima</flux:label>
                     <flux:select wire:model="learning_path_id">
-                        <option value="">Semua Pendaftar (Seluruh Mahasiswa)</option>
+                        @if (auth()->user()?->isAdmin())
+                            <option value="">Semua Pendaftar (Seluruh Mahasiswa)</option>
+                        @endif
                         @foreach ($this->learningPaths as $lp)
                             <option value="{{ $lp->id }}">Khusus Path: {{ $lp->title }}</option>
                         @endforeach

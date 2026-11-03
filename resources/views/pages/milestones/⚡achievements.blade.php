@@ -154,6 +154,8 @@ new #[Title('Capaian Saya & Kelulusan')] class extends Component {
                     $matPercent = $totalMats > 0 ? (int) round(($completedMats / $totalMats) * 100) : 0;
                     $totalMeetings = $path->meetings->count();
                     $pastMeetings = $path->meetings->filter->isPast()->count();
+                    $attendanceSummary = auth()->user()->attendanceSummaryForPath($path->id);
+                    $pointsPercent = (int) round(($attendanceSummary['points'] / $attendanceSummary['max_points']) * 100);
                 @endphp
 
                 <div class="rounded-2xl border {{ $isGraduated ? 'border-yellow-400/50 bg-gradient-to-br from-yellow-400/5 via-white to-white dark:from-yellow-400/10 dark:via-zinc-900 dark:to-zinc-900 shadow-sm' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs' }} p-6 space-y-6">
@@ -201,7 +203,7 @@ new #[Title('Capaian Saya & Kelulusan')] class extends Component {
                     </div>
 
                     <!-- Milestone Progress Bars -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <!-- Modul Progress -->
                         <div class="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 space-y-2">
                             <div class="flex items-center justify-between text-xs">
@@ -237,6 +239,30 @@ new #[Title('Capaian Saya & Kelulusan')] class extends Component {
                             <p class="text-[11px] text-zinc-400">
                                 {{ $totalMeetings - $pastMeetings > 0 ? 'Tersisa '.($totalMeetings - $pastMeetings).' pertemuan yang akan datang.' : 'Seluruh rangkaian pertemuan telah terlaksana.' }}
                             </p>
+                        </div>
+
+                        <!-- Poin Keaktifan & Kehadiran -->
+                        <div class="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 space-y-2">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                                    <flux:icon name="sparkles" class="size-3.5 text-yellow-500" />
+                                    Poin Keaktifan
+                                </span>
+                                <span class="font-extrabold {{ $attendanceSummary['is_eligible'] ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-900 dark:text-zinc-100' }}">
+                                    {{ $attendanceSummary['points'] }} / {{ $attendanceSummary['max_points'] }} Poin
+                                </span>
+                            </div>
+                            <div class="w-full h-2 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+                                <div class="h-full rounded-full {{ $attendanceSummary['is_eligible'] ? 'bg-emerald-500' : 'bg-amber-500' }} transition-all duration-500" style="width: {{ $pointsPercent }}%"></div>
+                            </div>
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span class="text-zinc-500 dark:text-zinc-400">
+                                    Hadir: {{ $attendanceSummary['hadir'] }}x (+100 Pt) • Izin: {{ $attendanceSummary['izin'] }}x (+50 Pt)
+                                </span>
+                                <span class="font-bold {{ $attendanceSummary['is_eligible'] ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400' }}">
+                                    {{ $attendanceSummary['is_eligible'] ? '✓ Syarat ≥ 500 Pt' : 'Min. 500 Pt' }}
+                                </span>
+                            </div>
                         </div>
                     </div>
 
@@ -283,7 +309,7 @@ new #[Title('Capaian Saya & Kelulusan')] class extends Component {
                                 <div>
                                     <p class="font-bold text-zinc-800 dark:text-zinc-200">Kriteria Penerbitan Sertifikat Kelulusan:</p>
                                     <p class="text-zinc-500 dark:text-zinc-400 text-[11px] mt-0.5">
-                                        Sertifikat resmi akan diberikan langsung oleh Admin setelah Anda menuntaskan rangkaian modul dan menghadiri pertemuan kelas ini.
+                                        Sertifikat resmi diterbitkan oleh Admin apabila Anda menuntaskan rangkaian modul dan mengumpulkan minimal <strong>500 Poin Keaktifan</strong> dari kehadiran pertemuan (Hadir: 100 Poin/pertemuan, Izin: 50 Poin, Maks: 600 Poin).
                                     </p>
                                 </div>
                             </div>

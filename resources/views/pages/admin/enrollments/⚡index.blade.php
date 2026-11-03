@@ -31,6 +31,7 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
     public string $name = '';
     public string $email = '';
     public string $role = 'user';
+    public array $selected_paths = [];
     public string $major = '';
     public string $batch_year = '';
     public string $password = '';
@@ -41,6 +42,7 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
     public string $edit_name = '';
     public string $edit_email = '';
     public string $edit_role = 'user';
+    public array $edit_selected_paths = [];
     public string $edit_major = '';
     public string $edit_batch_year = '';
     public string $edit_password = '';
@@ -48,24 +50,53 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
     public bool $edit_is_verified = true;
 
     /**
-     * Get learning paths for filter.
+     * Initialize component and enforce PJ path scoping.
+     */
+    public function mount(): void
+    {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            $managedIds = $user->managedLearningPathIds();
+            if (! $this->selectedPathId || ! in_array($this->selectedPathId, $managedIds, true)) {
+                $this->selectedPathId = $managedIds[0] ?? null;
+            }
+        }
+    }
+
+    /**
+     * Get learning paths for filter (scoped for PJ).
      */
     #[Computed]
     public function learningPaths()
     {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            return $user->managedLearningPaths()->orderBy('title')->get();
+        }
+
         return LearningPath::orderBy('title')->get();
     }
 
     /**
-     * Get students / users list.
+     * Get students / users list (scoped for PJ).
      */
     #[Computed]
     public function students()
     {
-        $query = User::with(['enrollments.learningPath', 'completedMaterials']);
+        $user = Auth::user();
+        $query = User::with(['enrollments.learningPath', 'completedMaterials', 'managedLearningPaths', 'meetingAttendances.meeting']);
+
+        if ($user && $user->isPj()) {
+            // PJ only sees students in their managed paths
+            $query->whereHas('enrollments', function ($q) use ($user) {
+                $q->whereIn('learning_path_id', $user->managedLearningPathIds());
+            });
+        }
 
         if ($this->roleFilter === 'user') {
             $query->where('role', 'user');
+        } elseif ($this->roleFilter === 'pj') {
+            $query->where('role', 'pj');
         } elseif ($this->roleFilter === 'admin') {
             $query->where('role', 'admin');
         }
@@ -95,11 +126,26 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
     }
 
     /**
-     * Summary stats.
+     * Summary stats (scoped for PJ).
      */
     #[Computed]
     public function stats(): array
     {
+        $user = Auth::user();
+
+        if ($user && $user->isPj()) {
+            $managedIds = $user->managedLearningPathIds();
+            $enrolledCount = User::whereHas('enrollments', fn ($q) => $q->whereIn('learning_path_id', $managedIds))->count();
+
+            return [
+                'totalUsers' => $enrolledCount,
+                'total' => $enrolledCount,
+                'enrolled' => $enrolledCount,
+                'notEnrolled' => 0,
+                'totalAdmins' => 0,
+            ];
+        }
+
         $totalUsers = User::count();
         $totalStudents = User::where('role', 'user')->count();
         $enrolledCount = User::where('role', 'user')->has('enrollments')->count();
@@ -120,9 +166,12 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
      */
     public function openCreateModal(): void
     {
-        $this->reset(['name', 'email', 'role', 'major', 'batch_year', 'password', 'password_confirmation', 'is_verified']);
+        abort_unless(Auth::user()->isAdmin(), 403, 'Akses terbatas untuk Administrator.');
+
+        $this->reset(['name', 'email', 'role', 'major', 'batch_year', 'password', 'password_confirmation', 'is_verified', 'selected_paths']);
         $this->role = 'user';
         $this->is_verified = true;
+        $this->selected_paths = [];
         $this->resetValidation();
         $this->showCreateModal = true;
     }
@@ -132,14 +181,23 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
      */
     public function createUser(): void
     {
-        $validated = $this->validate([
+        abort_unless(Auth::user()->isAdmin(), 403, 'Akses terbatas untuk Administrator.');
+
+        $rules = [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users,email',
-            'role' => 'required|in:admin,user',
+            'role' => 'required|in:admin,pj,user',
             'major' => 'nullable|string|max:255',
             'batch_year' => 'nullable|string|max:10',
             'password' => 'required|string|min:8|confirmed',
-        ]);
+        ];
+
+        if ($this->role === 'pj') {
+            $rules['selected_paths'] = 'required|array|min:1';
+            $rules['selected_paths.*'] = 'exists:learning_paths,id';
+        }
+
+        $validated = $this->validate($rules);
 
         $user = new User();
         $user->name = $validated['name'];
@@ -155,10 +213,18 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
 
         $user->save();
 
+        if ($user->isPj()) {
+            $user->managedLearningPaths()->sync($this->selected_paths);
+        }
+
         $this->showCreateModal = false;
         Flux::toast(variant: 'success', text: __('Pengguna :name (:role) berhasil ditambahkan!', [
             'name' => $user->name,
-            'role' => $user->isAdmin() ? 'Administrator' : 'Peserta',
+            'role' => match ($user->role) {
+                'admin' => 'Administrator',
+                'pj' => 'Penanggung Jawab Path',
+                default => 'Peserta',
+            },
         ]));
     }
 
@@ -167,11 +233,14 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
      */
     public function editUser(int $id): void
     {
-        $user = User::findOrFail($id);
+        abort_unless(Auth::user()->isAdmin(), 403, 'Akses terbatas untuk Administrator.');
+
+        $user = User::with('managedLearningPaths')->findOrFail($id);
         $this->editingUserId = $user->id;
         $this->edit_name = $user->name;
         $this->edit_email = $user->email;
         $this->edit_role = $user->role;
+        $this->edit_selected_paths = $user->managedLearningPaths->pluck('id')->toArray();
         $this->edit_major = (string) ($user->major ?? '');
         $this->edit_batch_year = (string) ($user->batch_year ?? '');
         $this->edit_password = '';
@@ -187,15 +256,22 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
      */
     public function updateUser(): void
     {
+        abort_unless(Auth::user()->isAdmin(), 403, 'Akses terbatas untuk Administrator.');
+
         $user = User::findOrFail($this->editingUserId);
 
         $rules = [
             'edit_name' => 'required|string|max:255',
             'edit_email' => 'required|string|email|max:255|unique:users,email,'.$user->id,
-            'edit_role' => 'required|in:admin,user',
+            'edit_role' => 'required|in:admin,pj,user',
             'edit_major' => 'nullable|string|max:255',
             'edit_batch_year' => 'nullable|string|max:10',
         ];
+
+        if ($this->edit_role === 'pj') {
+            $rules['edit_selected_paths'] = 'required|array|min:1';
+            $rules['edit_selected_paths.*'] = 'exists:learning_paths,id';
+        }
 
         if (! empty($this->edit_password)) {
             $rules['edit_password'] = 'required|string|min:8|confirmed';
@@ -221,6 +297,12 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
 
         $user->save();
 
+        if ($user->isPj()) {
+            $user->managedLearningPaths()->sync($this->edit_selected_paths);
+        } else {
+            $user->managedLearningPaths()->detach();
+        }
+
         $this->showEditModal = false;
         Flux::toast(variant: 'success', text: __('Data pengguna :name berhasil diperbarui!', ['name' => $user->name]));
     }
@@ -230,6 +312,8 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
      */
     public function deleteUser(int $id): void
     {
+        abort_unless(Auth::user()->isAdmin(), 403, 'Akses terbatas untuk Administrator.');
+
         if ($id === Auth::id()) {
             Flux::toast(variant: 'danger', text: __('Anda tidak dapat menghapus akun Anda sendiri yang sedang aktif digunakan.'));
             return;
@@ -239,7 +323,7 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
         $name = $user->name;
         $user->delete();
 
-        Flux::toast(variant: 'warning', text: __("Pengguna ':name' berhasil dihapus dari sistem.", ['name' => $name]));
+        Flux::toast(variant: 'warning', text: __("Pengguna ':name' telah dihapus dari sistem.", ['name' => $name]));
     }
 };
 ?>
@@ -250,21 +334,27 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
         <div>
             <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 mb-2 border border-yellow-400/20">
                 <flux:icon name="shield-check" class="size-3.5" />
-                <span>Admin Panel</span>
+                <span>{{ auth()->user()?->isPj() ? 'Panel Penanggung Jawab' : 'Admin Panel' }}</span>
             </div>
             <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
                 Data Mahasiswa & Pilihan Path
             </h1>
             <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                Pantau seluruh mahasiswa dan kelola akun pengguna (tambah baru, edit profil, atur role, atau hapus).
+                @if (auth()->user()?->isPj())
+                    Pantau daftar mahasiswa yang terdaftar pada path learning yang Anda ampu (Akses Read-Only).
+                @else
+                    Pantau seluruh mahasiswa dan kelola akun pengguna (tambah baru, edit profil, atur role, atau hapus).
+                @endif
             </p>
         </div>
 
-        <div class="flex items-center gap-2">
-            <flux:button wire:click="openCreateModal" variant="primary" icon="user-plus">
-                Tambah Pengguna Baru
-            </flux:button>
-        </div>
+        @if (auth()->user()?->isAdmin())
+            <div class="flex items-center gap-2">
+                <flux:button wire:click="openCreateModal" variant="primary" icon="user-plus">
+                    Tambah Pengguna Baru
+                </flux:button>
+            </div>
+        @endif
     </div>
 
     <!-- Stats Bar -->
@@ -303,10 +393,11 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
         </div>
 
         <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            <div class="w-40">
+            <div class="w-48">
                 <flux:select wire:model.live="roleFilter" size="sm">
                     <option value="all">Semua Role</option>
                     <option value="user">Peserta</option>
+                    <option value="pj">Penanggung Jawab (PJ)</option>
                     <option value="admin">Administrator</option>
                 </flux:select>
             </div>
@@ -378,8 +469,13 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
                                         <flux:icon name="shield-check" class="size-3" />
                                         <span>Admin</span>
                                     </span>
+                                @elseif ($student->isPj())
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                                        <flux:icon name="user-circle" class="size-3" />
+                                        <span>PJ Path</span>
+                                    </span>
                                 @else
-                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                                         <flux:icon name="academic-cap" class="size-3" />
                                         <span>Peserta</span>
                                     </span>
@@ -387,7 +483,9 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
                             </td>
                             <td class="px-5 py-4">
                                 @if ($student->isAdmin())
-                                    <p class="text-zinc-500 dark:text-zinc-400 italic text-[11px]">Staf Admin</p>
+                                    <p class="text-zinc-500 dark:text-zinc-400 italic text-[11px]">Administrator CIT</p>
+                                @elseif ($student->isPj())
+                                    <p class="text-zinc-500 dark:text-zinc-400 italic text-[11px]">Penanggung Jawab Path</p>
                                 @else
                                     <p class="text-zinc-800 dark:text-zinc-200 font-medium">{{ $student->major ?? '-' }}</p>
                                     <p class="text-zinc-400 text-[11px]">Angkatan: {{ $student->batch_year ?? '-' }}</p>
@@ -423,30 +521,59 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
                                 @endif
                             </td>
                             <td class="px-5 py-4">
-                                @if ($student->isAdmin())
+                                @if ($student->isAdmin() || $student->isPj())
                                     <span class="text-zinc-400 text-[11px]">-</span>
                                 @else
-                                    <span class="font-semibold text-zinc-800 dark:text-zinc-200">{{ $completedCount }}</span>
-                                    <span class="text-zinc-400">Modul Selesai</span>
+                                    <div class="space-y-1">
+                                        <div>
+                                            <span class="font-semibold text-zinc-800 dark:text-zinc-200">{{ $completedCount }}</span>
+                                            <span class="text-zinc-400">Modul Selesai</span>
+                                        </div>
+                                        @if ($enrollments->isNotEmpty())
+                                            <div class="flex flex-wrap gap-1">
+                                                @foreach ($enrollments as $enr)
+                                                    @if ($enr->learningPath)
+                                                        @php
+                                                            $pathPts = $student->pointsForPath($enr->learning_path_id);
+                                                            $isEligible = $student->isEligibleForCertificate($enr->learning_path_id);
+                                                        @endphp
+                                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold {{ $isEligible ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700' }}">
+                                                            <span>{{ $pathPts }} / 600 Pt</span>
+                                                            @if ($isEligible)
+                                                                <span>✓</span>
+                                                            @endif
+                                                        </span>
+                                                    @endif
+                                                @endforeach
+                                            </div>
+                                        @endif
+                                    </div>
                                 @endif
                             </td>
                             <td class="px-5 py-4 text-right">
-                                <div class="flex items-center justify-end gap-1.5">
-                                    <flux:button wire:click="editUser({{ $student->id }})" variant="subtle" size="xs" icon="pencil-square">
-                                        Edit
-                                    </flux:button>
-                                    @if (! $isCurrentUser)
-                                        <flux:button
-                                            wire:click="deleteUser({{ $student->id }})"
-                                            wire:confirm="Yakin ingin menghapus pengguna '{{ $student->name }}'? Seluruh data pendaftaran dan progres belajar akan terhapus."
-                                            variant="danger"
-                                            size="xs"
-                                            icon="trash"
-                                        >
-                                            Hapus
+                                @if (auth()->user()?->isAdmin())
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        <flux:button wire:click="editUser({{ $student->id }})" variant="subtle" size="xs" icon="pencil-square">
+                                            Edit
                                         </flux:button>
-                                    @endif
-                                </div>
+                                        @if (! $isCurrentUser)
+                                            <flux:button
+                                                wire:click="deleteUser({{ $student->id }})"
+                                                wire:confirm="Yakin ingin menghapus pengguna '{{ $student->name }}'? Seluruh data pendaftaran dan progres belajar akan terhapus."
+                                                variant="danger"
+                                                size="xs"
+                                                icon="trash"
+                                            >
+                                                Hapus
+                                            </flux:button>
+                                        @endif
+                                    </div>
+                                @else
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+                                        <flux:icon name="eye" class="size-3" />
+                                        Read-Only
+                                    </span>
+                                @endif
                             </td>
                         </tr>
                     @empty
@@ -461,8 +588,9 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
         </div>
     </div>
 
-    <!-- Create User Modal -->
-    <flux:modal wire:model="showCreateModal" class="md:w-[600px]">
+    @if (auth()->user()?->isAdmin())
+        <!-- Create User Modal -->
+        <flux:modal wire:model="showCreateModal" class="md:w-[600px]">
         <form wire:submit="createUser" class="space-y-4">
             <div class="flex items-center gap-3 pb-3 border-b border-zinc-200 dark:border-zinc-800">
                 <div class="size-10 rounded-xl bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 flex items-center justify-center font-bold">
@@ -492,10 +620,27 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
                 <flux:label>Hak Akses (Role)</flux:label>
                 <flux:select wire:model.live="role" required>
                     <option value="user">Peserta / Mahasiswa (Akses Belajar & Pemilihan Path)</option>
+                    <option value="pj">Penanggung Jawab Path (PJ) - Kelola Materi, Pertemuan, & Pendaftar Path</option>
                     <option value="admin">Administrator (Akses Penuh Kelola Sistem LMS)</option>
                 </flux:select>
                 <flux:error name="role" />
             </flux:field>
+
+            @if ($role === 'pj')
+                <flux:field>
+                    <flux:label>Path Learning yang Diampu <span class="text-red-500">*</span></flux:label>
+                    <flux:description>Pilih satu atau beberapa path yang menjadi tanggung jawab PJ ini.</flux:description>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40">
+                        @foreach ($this->learningPaths as $lp)
+                            <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-zinc-800 border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 cursor-pointer text-xs transition-colors">
+                                <input type="checkbox" wire:model="selected_paths" value="{{ $lp->id }}" class="rounded text-yellow-500 focus:ring-yellow-400 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700">
+                                <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ $lp->title }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                    <flux:error name="selected_paths" />
+                </flux:field>
+            @endif
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 {{ $role === 'admin' ? 'opacity-60' : '' }}">
                 <flux:field>
@@ -571,10 +716,27 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
                 <flux:label>Hak Akses (Role)</flux:label>
                 <flux:select wire:model.live="edit_role" required>
                     <option value="user">Peserta / Mahasiswa</option>
+                    <option value="pj">Penanggung Jawab Path (PJ)</option>
                     <option value="admin">Administrator</option>
                 </flux:select>
                 <flux:error name="edit_role" />
             </flux:field>
+
+            @if ($edit_role === 'pj')
+                <flux:field>
+                    <flux:label>Path Learning yang Diampu <span class="text-red-500">*</span></flux:label>
+                    <flux:description>Pilih satu atau beberapa path yang menjadi tanggung jawab PJ ini.</flux:description>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40">
+                        @foreach ($this->learningPaths as $lp)
+                            <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-zinc-800 border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 cursor-pointer text-xs transition-colors">
+                                <input type="checkbox" wire:model="edit_selected_paths" value="{{ $lp->id }}" class="rounded text-yellow-500 focus:ring-yellow-400 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700">
+                                <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ $lp->title }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                    <flux:error name="edit_selected_paths" />
+                </flux:field>
+            @endif
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <flux:field>
@@ -625,4 +787,5 @@ new #[Title('Data Pendaftar & Pengguna - Admin')] class extends Component {
             </div>
         </form>
     </flux:modal>
+    @endif
 </div>

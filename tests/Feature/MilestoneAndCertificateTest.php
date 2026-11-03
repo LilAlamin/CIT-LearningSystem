@@ -3,6 +3,8 @@
 use App\Models\Certificate;
 use App\Models\LearningPath;
 use App\Models\LearningPathEnrollment;
+use App\Models\MeetingAttendance;
+use App\Models\PathMeeting;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -87,6 +89,24 @@ test('admin can view certificates management page and issue certificate to stude
         'learning_path_id' => $path->id,
         'enrolled_at' => now(),
     ]);
+
+    for ($i = 1; $i <= 5; $i++) {
+        $meeting = PathMeeting::create([
+            'learning_path_id' => $path->id,
+            'meeting_number' => $i,
+            'title' => "Pertemuan {$i}",
+            'meeting_date' => now()->subDays(6 - $i),
+            'is_completed' => true,
+        ]);
+
+        MeetingAttendance::create([
+            'path_meeting_id' => $meeting->id,
+            'user_id' => $student->id,
+            'status' => MeetingAttendance::STATUS_HADIR,
+            'points' => MeetingAttendance::POINTS_HADIR,
+            'recorded_by' => $admin->id,
+        ]);
+    }
 
     $this->actingAs($admin);
 

@@ -3,6 +3,7 @@
 use App\Models\CalendarEvent;
 use App\Models\LearningPath;
 use Flux\Flux;
+use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -21,20 +22,32 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
     public ?int $learning_path_id = null;
 
     /**
-     * Get all calendar events.
+     * Get all calendar events (scoped for PJ).
      */
     #[Computed]
     public function events()
     {
-        return CalendarEvent::with('learningPath')->orderBy('event_date')->get();
+        $user = Auth::user();
+        $query = CalendarEvent::with('learningPath');
+
+        if ($user && $user->isPj()) {
+            $query->whereIn('learning_path_id', $user->managedLearningPathIds());
+        }
+
+        return $query->orderBy('event_date')->get();
     }
 
     /**
-     * Get learning paths.
+     * Get learning paths (scoped for PJ).
      */
     #[Computed]
     public function learningPaths()
     {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            return $user->managedLearningPaths()->orderBy('title')->get();
+        }
+
         return LearningPath::orderBy('title')->get();
     }
 
@@ -44,6 +57,10 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
     public function openCreateModal(): void
     {
         $this->reset(['title', 'description', 'event_time', 'learning_path_id', 'editingEventId']);
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            $this->learning_path_id = $user->managedLearningPathIds()[0] ?? null;
+        }
         $this->event_date = now()->toDateString();
         $this->event_type = 'event';
         $this->showCreateModal = true;
@@ -54,13 +71,18 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
      */
     public function createEvent(): void
     {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            abort_unless($user->canManagePath((int) $this->learning_path_id), 403, 'PJ hanya dapat membuat agenda untuk path yang diampunya.');
+        }
+
         $validated = $this->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'event_date' => 'required|date',
             'event_time' => 'nullable|string|max:50',
             'event_type' => 'required|in:event,deadline,workshop,session',
-            'learning_path_id' => 'nullable|exists:learning_paths,id',
+            'learning_path_id' => ($user && $user->isPj()) ? 'required|exists:learning_paths,id' : 'nullable|exists:learning_paths,id',
         ]);
 
         CalendarEvent::create($validated);
@@ -75,6 +97,10 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
     public function editEvent(int $id): void
     {
         $event = CalendarEvent::findOrFail($id);
+        if (Auth::user()->isPj()) {
+            abort_unless(Auth::user()->canManagePath((int) $event->learning_path_id), 403);
+        }
+
         $this->editingEventId = $event->id;
         $this->title = $event->title;
         $this->description = $event->description ?? '';
@@ -92,14 +118,19 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
     public function updateEvent(): void
     {
         $event = CalendarEvent::findOrFail($this->editingEventId);
+        if (Auth::user()->isPj()) {
+            abort_unless(Auth::user()->canManagePath((int) $event->learning_path_id), 403);
+            abort_unless(Auth::user()->canManagePath((int) $this->learning_path_id), 403);
+        }
 
+        $user = Auth::user();
         $validated = $this->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'event_date' => 'required|date',
             'event_time' => 'nullable|string|max:50',
             'event_type' => 'required|in:event,deadline,workshop,session',
-            'learning_path_id' => 'nullable|exists:learning_paths,id',
+            'learning_path_id' => ($user && $user->isPj()) ? 'required|exists:learning_paths,id' : 'nullable|exists:learning_paths,id',
         ]);
 
         $event->update($validated);
@@ -114,6 +145,10 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
     public function deleteEvent(int $id): void
     {
         $ev = CalendarEvent::findOrFail($id);
+        if (Auth::user()->isPj()) {
+            abort_unless(Auth::user()->canManagePath((int) $ev->learning_path_id), 403);
+        }
+
         $ev->delete();
 
         Flux::toast(variant: 'warning', text: __('Agenda telah dihapus.'));
@@ -244,9 +279,11 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
                 </flux:field>
 
                 <flux:field>
-                    <flux:label>Path Terkait (Opsional)</flux:label>
+                    <flux:label>Path Terkait {{ auth()->user()?->isPj() ? '' : '(Opsional)' }}</flux:label>
                     <flux:select wire:model="learning_path_id">
-                        <option value="">Semua Path (Umum)</option>
+                        @if (auth()->user()?->isAdmin())
+                            <option value="">Semua Path (Umum)</option>
+                        @endif
                         @foreach ($this->learningPaths as $lp)
                             <option value="{{ $lp->id }}">{{ $lp->title }}</option>
                         @endforeach
@@ -310,9 +347,11 @@ new #[Title('Agenda Kalender - Admin')] class extends Component {
                 </flux:field>
 
                 <flux:field>
-                    <flux:label>Path Terkait</flux:label>
+                    <flux:label>Path Terkait {{ auth()->user()?->isPj() ? '' : '(Opsional)' }}</flux:label>
                     <flux:select wire:model="learning_path_id">
-                        <option value="">Semua Path (Umum)</option>
+                        @if (auth()->user()?->isAdmin())
+                            <option value="">Semua Path (Umum)</option>
+                        @endif
                         @foreach ($this->learningPaths as $lp)
                             <option value="{{ $lp->id }}">{{ $lp->title }}</option>
                         @endforeach

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AppSetting;
 use App\Models\LearningPath;
 use App\Models\LearningPathEnrollment;
 use Flux\Flux;
@@ -11,6 +12,15 @@ use Livewire\Component;
 new #[Title('Pemilihan Path Learning')] class extends Component {
     public ?int $selectedPathForModal = null;
     public bool $showSyllabusModal = false;
+
+    /**
+     * Maximum number of paths a user is allowed to enroll in.
+     */
+    #[Computed]
+    public function maxAllowedPaths(): int
+    {
+        return AppSetting::get('allow_dual_path_enrollment', '0') === '1' ? 2 : 1;
+    }
 
     /**
      * Get all active learning paths with relationships.
@@ -97,6 +107,22 @@ new #[Title('Pemilihan Path Learning')] class extends Component {
                 text: __('Pendaftaran pada path :title berhasil dibatalkan.', ['title' => $path->title])
             );
         } else {
+            // Check maximum path limit per user
+            if (count($this->enrolledPathIds) >= $this->maxAllowedPaths) {
+                if ($this->maxAllowedPaths === 1) {
+                    Flux::toast(
+                        variant: 'danger',
+                        text: __('Anda hanya dapat memilih 1 path learning. Batalkan pilihan path saat ini terlebih dahulu jika ingin berpindah ke path lain.')
+                    );
+                } else {
+                    Flux::toast(
+                        variant: 'danger',
+                        text: __('Anda telah mencapai batas maksimal :max path learning. Batalkan salah satu pilihan terlebih dahulu jika ingin memilih path lain.', ['max' => $this->maxAllowedPaths])
+                    );
+                }
+                return;
+            }
+
             // 3. Quota Check
             if ($path->isFull()) {
                 Flux::toast(
@@ -141,7 +167,11 @@ new #[Title('Pemilihan Path Learning')] class extends Component {
                 Pemilihan Path Learning
             </h1>
             <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                Anda bebas memilih lebih dari 1 path learning yang diminati. Perhatikan batas waktu pendaftaran pada masing-masing path!
+                @if ($this->maxAllowedPaths > 1)
+                    Anda dapat memilih maksimal hingga {{ $this->maxAllowedPaths }} path learning yang diminati. Perhatikan batas waktu pendaftaran pada masing-masing path!
+                @else
+                    Setiap mahasiswa hanya dapat memilih 1 (satu) path learning. Perhatikan batas waktu pendaftaran pada masing-masing path!
+                @endif
             </p>
         </div>
 
@@ -149,12 +179,12 @@ new #[Title('Pemilihan Path Learning')] class extends Component {
             @if (count($this->enrolledPathIds) > 0)
                 <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
                     <flux:icon name="check-circle" class="size-4" />
-                    <span>Terdaftar di {{ count($this->enrolledPathIds) }} Path Learning</span>
+                    <span>Terdaftar di {{ count($this->enrolledPathIds) }} dari {{ $this->maxAllowedPaths }} Path Learning</span>
                 </div>
             @else
                 <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold">
                     <flux:icon name="exclamation-circle" class="size-4" />
-                    <span>Anda belum memilih path</span>
+                    <span>Anda belum memilih path (Maksimal: {{ $this->maxAllowedPaths }} Path)</span>
                 </div>
             @endif
         </div>
@@ -168,7 +198,11 @@ new #[Title('Pemilihan Path Learning')] class extends Component {
                 Aturan & Ketentuan Pemilihan Path:
             </p>
             <ul class="list-disc list-inside space-y-0.5 text-zinc-500 dark:text-zinc-400">
-                <li>Mahasiswa <strong>bebas memilih lebih dari satu</strong> path learning sesuai minat dan kapasitas belajar.</li>
+                @if ($this->maxAllowedPaths > 1)
+                    <li>Mahasiswa dapat memilih <strong>maksimal hingga {{ $this->maxAllowedPaths }} path learning</strong> sesuai minat dan kapasitas belajar.</li>
+                @else
+                    <li>Mahasiswa <strong>hanya dapat memilih 1 (satu) path learning</strong>. Jika ingin berganti path, batalkan pilihan sebelumnya terlebih dahulu.</li>
+                @endif
                 <li>Pemilihan dan pembatalan dapat dilakukan secara fleksibel selama jangka waktu pemilihan masih aktif.</li>
                 <li><strong>Jika batas waktu telah lewat, sistem otomatis mengunci pilihan</strong> dan Anda tidak dapat memilih atau mengubah path lagi.</li>
                 <li>Setiap path memiliki alur pertemuan terstruktur yang dapat dipantau pada menu <strong>Alur & Pertemuan</strong>.</li>
@@ -342,15 +376,32 @@ new #[Title('Pemilihan Path Learning')] class extends Component {
                                 Penuh
                             </flux:button>
                         @else
-                            <flux:button
-                                wire:click="toggleEnrollment({{ $path->id }})"
-                                wire:loading.attr="disabled"
-                                variant="primary"
-                                size="sm"
-                                icon="check"
-                            >
-                                Pilih Path Ini
-                            </flux:button>
+                            @php
+                                $reachedLimit = count($this->enrolledPathIds) >= $this->maxAllowedPaths;
+                            @endphp
+                            @if ($reachedLimit)
+                                <flux:tooltip content="Batas maksimal {{ $this->maxAllowedPaths }} path telah tercapai. Batalkan pilihan saat ini terlebih dahulu jika ingin berpindah ke path ini.">
+                                    <flux:button
+                                        wire:click="toggleEnrollment({{ $path->id }})"
+                                        wire:loading.attr="disabled"
+                                        variant="filled"
+                                        size="sm"
+                                        icon="check"
+                                    >
+                                        Pilih Path Ini
+                                    </flux:button>
+                                </flux:tooltip>
+                            @else
+                                <flux:button
+                                    wire:click="toggleEnrollment({{ $path->id }})"
+                                    wire:loading.attr="disabled"
+                                    variant="primary"
+                                    size="sm"
+                                    icon="check"
+                                >
+                                    Pilih Path Ini
+                                </flux:button>
+                            @endif
                         @endif
                     </div>
                 </div>

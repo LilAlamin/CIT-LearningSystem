@@ -89,6 +89,19 @@ new #[Title('Security settings')] class extends Component {
                 viewable
             />
 
+            <!-- Password Hint Box -->
+            <div class="rounded-xl border border-yellow-400/30 bg-yellow-400/5 dark:bg-yellow-400/10 p-3.5 text-xs space-y-1.5">
+                <div class="flex items-center gap-2 font-bold text-zinc-900 dark:text-zinc-100">
+                    <flux:icon name="shield-check" class="size-4 text-yellow-500 shrink-0" />
+                    <span>Petunjuk Kata Sandi:</span>
+                </div>
+                <ul class="list-disc list-inside space-y-1 text-zinc-600 dark:text-zinc-400 pl-0.5 text-[11px]">
+                    <li>Minimal <strong>8 karakter</strong></li>
+                    <li>Wajib kombinasi <strong>huruf dan angka</strong> (contoh: <span class="font-mono font-semibold text-zinc-800 dark:text-zinc-200">Mahasiswa2026</span>)</li>
+                    <li>Kolom <strong>Confirm password</strong> harus sama persis dengan Password baru</li>
+                </ul>
+            </div>
+
             <div class="flex items-center gap-4">
                 <flux:button variant="primary" type="submit" data-test="update-password-button">
                     {{ __('Save') }}

@@ -78,6 +78,16 @@ class PathMeeting extends Model
     }
 
     /**
+     * Get student attendance records for this meeting.
+     *
+     * @return HasMany<MeetingAttendance, $this>
+     */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(MeetingAttendance::class, 'path_meeting_id');
+    }
+
+    /**
      * Check if the meeting has passed.
      */
     public function isPast(): bool

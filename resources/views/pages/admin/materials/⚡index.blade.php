@@ -3,6 +3,7 @@
 use App\Models\LearningPath;
 use App\Models\Material;
 use Flux\Flux;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -29,21 +30,45 @@ new #[Title('Kelola Materi - Admin')] class extends Component {
     public bool $is_published = true;
 
     /**
-     * Get learning paths for selector.
+     * Initialize component and enforce PJ path scoping.
+     */
+    public function mount(): void
+    {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            $managedIds = $user->managedLearningPathIds();
+            if (! $this->selectedPathId || ! in_array($this->selectedPathId, $managedIds, true)) {
+                $this->selectedPathId = $managedIds[0] ?? null;
+            }
+        }
+    }
+
+    /**
+     * Get learning paths for selector (scoped for PJ).
      */
     #[Computed]
     public function learningPaths()
     {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            return $user->managedLearningPaths()->orderBy('title')->get();
+        }
+
         return LearningPath::orderBy('title')->get();
     }
 
     /**
-     * Get materials list.
+     * Get materials list (scoped for PJ).
      */
     #[Computed]
     public function materials()
     {
+        $user = Auth::user();
         $query = Material::with('learningPath');
+
+        if ($user && $user->isPj()) {
+            $query->whereIn('learning_path_id', $user->managedLearningPathIds());
+        }
 
         if ($this->selectedPathId) {
             $query->where('learning_path_id', $this->selectedPathId);
@@ -80,6 +105,8 @@ new #[Title('Kelola Materi - Admin')] class extends Component {
      */
     public function createMaterial(): void
     {
+        abort_unless(Auth::user()->canManagePath((int) $this->learning_path_id), 403, 'Anda tidak memiliki hak akses mengelola path ini.');
+
         $validated = $this->validate([
             'learning_path_id' => 'required|exists:learning_paths,id',
             'title' => 'required|string|max:255',
@@ -104,6 +131,8 @@ new #[Title('Kelola Materi - Admin')] class extends Component {
     public function editMaterial(int $id): void
     {
         $material = Material::findOrFail($id);
+        abort_unless(Auth::user()->canManagePath((int) $material->learning_path_id), 403, 'Anda tidak memiliki hak akses mengelola materi path ini.');
+
         $this->editingMaterialId = $material->id;
         $this->learning_path_id = $material->learning_path_id;
         $this->title = $material->title;
@@ -124,6 +153,8 @@ new #[Title('Kelola Materi - Admin')] class extends Component {
     public function updateMaterial(): void
     {
         $material = Material::findOrFail($this->editingMaterialId);
+        abort_unless(Auth::user()->canManagePath((int) $material->learning_path_id), 403);
+        abort_unless(Auth::user()->canManagePath((int) $this->learning_path_id), 403);
 
         $validated = $this->validate([
             'learning_path_id' => 'required|exists:learning_paths,id',
@@ -149,6 +180,8 @@ new #[Title('Kelola Materi - Admin')] class extends Component {
     public function deleteMaterial(int $id): void
     {
         $mat = Material::findOrFail($id);
+        abort_unless(Auth::user()->canManagePath((int) $mat->learning_path_id), 403);
+
         $mat->delete();
 
         Flux::toast(variant: 'warning', text: __('Materi telah dihapus.'));

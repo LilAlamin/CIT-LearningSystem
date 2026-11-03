@@ -276,26 +276,55 @@ new #[Title('Dashboard')] class extends Component {
     }
 
     /**
-     * Learning paths overview for admin with counts.
+     * Metrics for PJ scoped to their managed paths.
+     */
+    #[Computed]
+    public function pjStats(): array
+    {
+        $user = Auth::user();
+        $managedIds = $user ? $user->managedLearningPathIds() : [];
+
+        return [
+            'managedPathsCount' => count($managedIds),
+            'totalMaterials' => Material::whereIn('learning_path_id', $managedIds)->count(),
+            'publishedMaterials' => Material::whereIn('learning_path_id', $managedIds)->where('is_published', true)->count(),
+            'totalStudents' => User::whereHas('enrollments', fn ($q) => $q->whereIn('learning_path_id', $managedIds))->count(),
+            'totalMeetings' => PathMeeting::whereIn('learning_path_id', $managedIds)->count(),
+            'upcomingMeetings' => PathMeeting::whereIn('learning_path_id', $managedIds)->where('meeting_date', '>=', now())->count(),
+            'totalAnnouncements' => Announcement::whereIn('learning_path_id', $managedIds)->count(),
+        ];
+    }
+
+    /**
+     * Learning paths overview for admin or PJ with counts.
      */
     #[Computed]
     public function adminPathsOverview()
     {
-        return LearningPath::withCount(['enrollments', 'materials', 'meetings'])
-            ->orderBy('id')
-            ->get();
+        $user = Auth::user();
+        $query = LearningPath::withCount(['enrollments', 'materials', 'meetings']);
+
+        if ($user && $user->isPj()) {
+            $query->whereIn('id', $user->managedLearningPathIds());
+        }
+
+        return $query->orderBy('id')->get();
     }
 
     /**
-     * Latest 5 student enrollments for admin.
+     * Latest 5 student enrollments for admin or PJ.
      */
     #[Computed]
     public function recentEnrollments()
     {
-        return LearningPathEnrollment::with(['user', 'learningPath'])
-            ->latest('enrolled_at')
-            ->take(5)
-            ->get();
+        $user = Auth::user();
+        $query = LearningPathEnrollment::with(['user', 'learningPath']);
+
+        if ($user && $user->isPj()) {
+            $query->whereIn('learning_path_id', $user->managedLearningPathIds());
+        }
+
+        return $query->latest('enrolled_at')->take(5)->get();
     }
 };
 ?>
@@ -316,6 +345,17 @@ new #[Title('Dashboard')] class extends Component {
                     </h1>
                     <p class="text-zinc-400 text-sm max-w-2xl leading-relaxed">
                         Pusat kendali CIT Learning System — Kelola seluruh alur path, kuota pendaftar, modul materi, sesi pertemuan, dan penerbitan sertifikat kelulusan.
+                    </p>
+                @elseif (auth()->user()->isPj())
+                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-sky-400/20 text-sky-300 border border-sky-400/30">
+                        <flux:icon name="user-circle" class="size-3.5" />
+                        <span>Penanggung Jawab Path (PJ)</span>
+                    </div>
+                    <h1 class="text-2xl md:text-3xl font-bold tracking-tight">
+                        Selamat Datang, {{ auth()->user()->name }}! 👋
+                    </h1>
+                    <p class="text-zinc-400 text-sm max-w-2xl leading-relaxed">
+                        Panel Penanggung Jawab — Mengampu: <span class="text-white font-semibold">{{ auth()->user()->managedLearningPaths->pluck('title')->join(', ') ?: 'Belum ditentukan' }}</span>.
                     </p>
                 @else
                     <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-yellow-400/20 text-yellow-300 border border-yellow-400/30">
@@ -342,6 +382,16 @@ new #[Title('Dashboard')] class extends Component {
                     </flux:button>
                     <flux:button href="{{ route('admin.announcements.index') }}" variant="subtle" icon="envelope" wire:navigate>
                         Pengumuman
+                    </flux:button>
+                @elseif (auth()->user()->isPj())
+                    <flux:button href="{{ route('admin.meetings.index') }}" variant="primary" icon="video-camera" wire:navigate>
+                        Kelola Pertemuan
+                    </flux:button>
+                    <flux:button href="{{ route('admin.materials.index') }}" variant="subtle" icon="document-text" wire:navigate>
+                        Kelola Materi
+                    </flux:button>
+                    <flux:button href="{{ route('admin.enrollments.index') }}" variant="subtle" icon="users" wire:navigate>
+                        Data Pendaftar
                     </flux:button>
                 @else
                     <flux:button href="{{ route('learning-paths.index') }}" variant="primary" icon="academic-cap" wire:navigate>
@@ -722,6 +772,192 @@ new #[Title('Dashboard')] class extends Component {
                                         {{ $item->enrolled_at ? $item->enrolled_at->diffForHumans() : '-' }}
                                     </span>
                                 </div>
+                                <p class="text-[11px] text-zinc-500 truncate">
+                                    {{ $item->user->major ?? 'Umum' }} • Angkatan {{ $item->user->batch_year ?? '-' }}
+                                </p>
+                                <span class="inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 truncate max-w-full">
+                                    {{ $item->learningPath->title }}
+                                </span>
+                            </div>
+                        </div>
+                    @empty
+                        <p class="text-xs text-zinc-400 py-6 text-center italic">Belum ada data pendaftar.</p>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    @elseif (auth()->user()->isPj())
+        <!-- ============================================== -->
+        <!-- PJ DASHBOARD SECTION -->
+        <!-- ============================================== -->
+
+        <!-- 1. PJ KPI Stats (4 cards) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <a href="{{ route('admin.meetings.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:border-amber-400/60 transition-all group" wire:navigate>
+                <div class="size-12 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shrink-0 group-hover:scale-105 transition-transform">
+                    <flux:icon name="video-camera" class="size-6" />
+                </div>
+                <div class="min-w-0">
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400 font-medium truncate">Sesi Pertemuan</p>
+                    <p class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{{ $this->pjStats['totalMeetings'] }} <span class="text-xs font-normal text-zinc-400">Total Sesi</span></p>
+                </div>
+            </a>
+
+            <a href="{{ route('admin.materials.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:border-emerald-400/60 transition-all group" wire:navigate>
+                <div class="size-12 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0 group-hover:scale-105 transition-transform">
+                    <flux:icon name="document-text" class="size-6" />
+                </div>
+                <div class="min-w-0">
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400 font-medium truncate">Modul Materi</p>
+                    <p class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{{ $this->pjStats['publishedMaterials'] }} <span class="text-xs font-normal text-zinc-400">Modul Siap</span></p>
+                </div>
+            </a>
+
+            <a href="{{ route('admin.enrollments.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:border-sky-400/60 transition-all group" wire:navigate>
+                <div class="size-12 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center font-bold shrink-0 group-hover:scale-105 transition-transform">
+                    <flux:icon name="users" class="size-6" />
+                </div>
+                <div class="min-w-0">
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400 font-medium truncate">Pendaftar di Path</p>
+                    <p class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{{ $this->pjStats['totalStudents'] }} <span class="text-xs font-normal text-zinc-400">Mahasiswa</span></p>
+                </div>
+            </a>
+
+            <a href="{{ route('admin.announcements.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:border-yellow-400/60 transition-all group" wire:navigate>
+                <div class="size-12 rounded-xl bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 flex items-center justify-center font-bold shrink-0 group-hover:scale-105 transition-transform">
+                    <flux:icon name="envelope" class="size-6" />
+                </div>
+                <div class="min-w-0">
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400 font-medium truncate">Pengumuman Path</p>
+                    <p class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{{ $this->pjStats['totalAnnouncements'] }} <span class="text-xs font-normal text-zinc-400">Broadcast</span></p>
+                </div>
+            </a>
+        </div>
+
+        <!-- 2. PJ Quick Actions -->
+        <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800 mb-4">
+                <div class="flex items-center gap-2">
+                    <span class="p-1.5 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                        <flux:icon name="user-circle" class="size-4" />
+                    </span>
+                    <h3 class="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                        Pusat Kendali Penanggung Jawab Path
+                    </h3>
+                </div>
+                <span class="text-xs text-zinc-400">Akses Cepat Pengelolaan</span>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                <a href="{{ route('admin.meetings.index') }}" class="flex flex-col items-center text-center p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-amber-400/60 hover:bg-amber-400/5 transition-all group" wire:navigate>
+                    <div class="size-10 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                        <flux:icon name="video-camera" class="size-5" />
+                    </div>
+                    <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">Kelola Pertemuan</span>
+                    <span class="text-[10px] text-zinc-400 mt-0.5">Jadwal Sesi & Link Meet</span>
+                </a>
+
+                <a href="{{ route('admin.materials.index') }}" class="flex flex-col items-center text-center p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-emerald-400/60 hover:bg-emerald-400/5 transition-all group" wire:navigate>
+                    <div class="size-10 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                        <flux:icon name="document-text" class="size-5" />
+                    </div>
+                    <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">Kelola Materi</span>
+                    <span class="text-[10px] text-zinc-400 mt-0.5">Modul & Bacaan</span>
+                </a>
+
+                <a href="{{ route('admin.enrollments.index') }}" class="flex flex-col items-center text-center p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-sky-400/60 hover:bg-sky-400/5 transition-all group" wire:navigate>
+                    <div class="size-10 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                        <flux:icon name="users" class="size-5" />
+                    </div>
+                    <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">Data Pendaftar</span>
+                    <span class="text-[10px] text-zinc-400 mt-0.5">Peserta Path (Read-only)</span>
+                </a>
+
+                <a href="{{ route('admin.announcements.index') }}" class="flex flex-col items-center text-center p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-yellow-400/60 hover:bg-yellow-400/5 transition-all group" wire:navigate>
+                    <div class="size-10 rounded-lg bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                        <flux:icon name="envelope" class="size-5" />
+                    </div>
+                    <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">Pengumuman</span>
+                    <span class="text-[10px] text-zinc-400 mt-0.5">Kirim info & email</span>
+                </a>
+
+                <a href="{{ route('admin.calendar-events.index') }}" class="flex flex-col items-center text-center p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-purple-400/60 hover:bg-purple-400/5 transition-all group" wire:navigate>
+                    <div class="size-10 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                        <flux:icon name="calendar-days" class="size-5" />
+                    </div>
+                    <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">Agenda Kalender</span>
+                    <span class="text-[10px] text-zinc-400 mt-0.5">Jadwal kegiatan</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- 3. Path Overview & Recent Enrollments -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-xs">
+                <div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800 mb-4">
+                    <h3 class="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                        <flux:icon name="rectangle-stack" class="size-4 text-sky-500" />
+                        Path Learning Yang Anda Ampu
+                    </h3>
+                </div>
+
+                <div class="space-y-3">
+                    @forelse ($this->adminPathsOverview as $path)
+                        <div class="p-4 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:border-sky-400/40 transition-colors">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-3">
+                                    <span class="p-2 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                                        <flux:icon name="{{ $path->icon ?: 'academic-cap' }}" class="size-5" />
+                                    </span>
+                                    <div>
+                                        <h4 class="font-bold text-sm text-zinc-900 dark:text-zinc-100">{{ $path->title }}</h4>
+                                        <p class="text-xs text-zinc-400">{{ $path->slug }}</p>
+                                    </div>
+                                </div>
+                                <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                    {{ $path->is_active ? 'Aktif' : 'Nonaktif' }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800 text-xs">
+                                <div>
+                                    <span class="text-zinc-400 text-[11px]">Pendaftar</span>
+                                    <p class="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">{{ $path->enrollments_count }} / {{ $path->quota ?? '∞' }}</p>
+                                </div>
+                                <div>
+                                    <span class="text-zinc-400 text-[11px]">Pertemuan</span>
+                                    <p class="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">{{ $path->meetings_count }} Sesi</p>
+                                </div>
+                                <div>
+                                    <span class="text-zinc-400 text-[11px]">Materi</span>
+                                    <p class="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">{{ $path->materials_count }} Modul</p>
+                                </div>
+                            </div>
+                        </div>
+                    @empty
+                        <p class="text-xs text-zinc-400 py-6 text-center italic">Anda belum ditugaskan pada path learning apapun.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-xs">
+                <div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800 mb-4">
+                    <h3 class="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                        <flux:icon name="user-plus" class="size-4 text-sky-500" />
+                        Pendaftar Terbaru
+                    </h3>
+                    <flux:button href="{{ route('admin.enrollments.index') }}" variant="subtle" size="xs" wire:navigate>
+                        Lihat Semua
+                    </flux:button>
+                </div>
+
+                <div class="space-y-3">
+                    @forelse ($this->recentEnrollments as $item)
+                        <div class="flex items-center gap-3 p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50">
+                            <div class="size-8 rounded-full bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold flex items-center justify-center text-xs shrink-0">
+                                {{ $item->user->initials() }}
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <p class="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate">{{ $item->user->name }}</p>
                                 <p class="text-[11px] text-zinc-500 truncate">
                                     {{ $item->user->major ?? 'Umum' }} • Angkatan {{ $item->user->batch_year ?? '-' }}
                                 </p>

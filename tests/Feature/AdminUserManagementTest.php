@@ -193,4 +193,3 @@ test('admin can create, edit, and delete user directly from data pendaftar page'
 
     expect(User::find($created->id))->toBeNull();
 });
-

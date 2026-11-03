@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AppSetting;
 use App\Models\LearningPath;
 use Flux\Flux;
 use Illuminate\Support\Str;
@@ -11,6 +12,9 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
     public bool $showCreateModal = false;
     public bool $showEditModal = false;
     public ?int $editingPathId = null;
+
+    // Batas pemilihan path: false = maks 1 path (default), true = maks 2 path
+    public bool $allowDualPaths = false;
 
     // Form fields
     public string $title = '';
@@ -53,6 +57,29 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
     public function learningPaths()
     {
         return LearningPath::withCount('enrollments', 'materials')->latest()->get();
+    }
+
+    /**
+     * Initialize component and load settings.
+     */
+    public function mount(): void
+    {
+        $this->allowDualPaths = AppSetting::get('allow_dual_path_enrollment', '0') === '1';
+    }
+
+    /**
+     * Handle toggle change for dual path setting.
+     */
+    public function updatedAllowDualPaths(bool $value): void
+    {
+        AppSetting::set('allow_dual_path_enrollment', $value ? '1' : '0', 'learning_path');
+
+        Flux::toast(
+            variant: 'success',
+            text: $value
+                ? __('Opsi aktif: Mahasiswa kini diizinkan memilih hingga 2 path learning.')
+                : __('Opsi nonaktif: Mahasiswa kini dibatasi hanya dapat memilih 1 path learning.')
+        );
     }
 
     /**
@@ -194,6 +221,37 @@ new #[Title('Kelola Path Learning - Admin')] class extends Component {
         <flux:button wire:click="openCreateModal" variant="primary" icon="plus">
             Tambah Path Baru
         </flux:button>
+    </div>
+
+    <!-- Setting Batas Pilihan Path Mahasiswa -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
+        <div class="flex items-start sm:items-center gap-3">
+            <div class="p-2.5 rounded-xl bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 shrink-0">
+                <flux:icon name="adjustments-horizontal" class="size-5" />
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h3 class="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                        Aturan Batas Pemilihan Path Mahasiswa
+                    </h3>
+                    @if ($allowDualPaths)
+                        <flux:badge size="sm" color="emerald" inset="top bottom">Maksimal 2 Path Aktif</flux:badge>
+                    @else
+                        <flux:badge size="sm" color="zinc" inset="top bottom">Maksimal 1 Path (Default)</flux:badge>
+                    @endif
+                </div>
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    Secara default peserta hanya boleh memilih 1 path. Aktifkan sakelar jika ingin memberikan izin bagi mahasiswa untuk memilih hingga 2 path learning.
+                </p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3 shrink-0 self-end sm:self-center">
+            <flux:switch
+                wire:model.live="allowDualPaths"
+                label="Bolehkan 2 Path"
+            />
+        </div>
     </div>
 
     <!-- Table of Learning Paths -->

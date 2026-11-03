@@ -1,0 +1,12 @@
+Todo:
+  ☑ Kelola Pengguna
+  ☐ Setting SMTP
+  ☑ Role PJ: Kelola Pertemuan (Scope Path)
+  ☑ Role PJ: Kelola Materi (Scope Path)
+  ☑ Role PJ: Data Pendaftaran (Read-only)
+  ☑ Role PJ: Pengumuman, Email, dan Kalender (Scope Path)
+  ☑ Refactor Hint Password
+  ☑ Refactor Ubah Logic Peserta Bisa Pilih Satu Path (Opsional)
+  ☑ Add Point Keaktifan (Hadir: 100 pt/pertemuan, Maks: 600 pt)
+  ☑ Add Point Ijin (50 pt)
+  ☑ Validasi Syarat Sertifikat Minimal 500 Points

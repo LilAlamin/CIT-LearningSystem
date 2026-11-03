@@ -1,8 +1,11 @@
 <?php
 
 use App\Models\LearningPath;
+use App\Models\MeetingAttendance;
 use App\Models\PathMeeting;
+use App\Models\User;
 use Flux\Flux;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -16,6 +19,15 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
     public bool $showCreateModal = false;
     public bool $showEditModal = false;
     public ?int $editingMeetingId = null;
+
+    public bool $showAttendanceModal = false;
+    public ?int $attendanceMeetingId = null;
+
+    /** @var array<int, string> */
+    public array $attendanceStatuses = [];
+
+    /** @var array<int, string> */
+    public array $attendanceNotes = [];
 
     // Form fields
     public ?int $learning_path_id = null;
@@ -33,22 +45,52 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
     public bool $is_completed = false;
 
     /**
-     * All available learning paths.
+     * Initialize component and enforce PJ path scoping.
+     */
+    public function mount(): void
+    {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            $managedIds = $user->managedLearningPathIds();
+            if (! $this->selectedPathId || ! in_array($this->selectedPathId, $managedIds, true)) {
+                $this->selectedPathId = $managedIds[0] ?? null;
+            }
+        }
+    }
+
+    /**
+     * All available learning paths (scoped for PJ).
      */
     #[Computed]
     public function learningPaths()
     {
+        $user = Auth::user();
+        if ($user && $user->isPj()) {
+            return $user->managedLearningPaths()->orderBy('title')->get();
+        }
+
         return LearningPath::orderBy('title')->get();
     }
 
     /**
-     * Get meetings query filtered by selected path.
+     * Get meetings query filtered by selected path (scoped for PJ).
      */
     #[Computed]
     public function meetings()
     {
-        return PathMeeting::with(['learningPath'])
-            ->withCount('materials')
+        $user = Auth::user();
+        $query = PathMeeting::with(['learningPath'])->withCount([
+            'materials',
+            'attendances as hadir_count' => fn ($q) => $q->where('status', MeetingAttendance::STATUS_HADIR),
+            'attendances as izin_count' => fn ($q) => $q->where('status', MeetingAttendance::STATUS_IZIN),
+            'attendances as alpha_count' => fn ($q) => $q->where('status', MeetingAttendance::STATUS_ALPHA),
+        ]);
+
+        if ($user && $user->isPj()) {
+            $query->whereIn('learning_path_id', $user->managedLearningPathIds());
+        }
+
+        return $query
             ->when($this->selectedPathId, fn ($q) => $q->where('learning_path_id', $this->selectedPathId))
             ->orderBy('learning_path_id')
             ->orderBy('meeting_number')
@@ -56,12 +98,138 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
     }
 
     /**
-     * Summary metrics.
+     * Get the meeting currently selected for attendance recording.
+     */
+    #[Computed]
+    public function attendanceMeeting(): ?PathMeeting
+    {
+        if (! $this->attendanceMeetingId) {
+            return null;
+        }
+
+        return PathMeeting::with(['learningPath', 'attendances'])->find($this->attendanceMeetingId);
+    }
+
+    /**
+     * Get enrolled students for the currently selected attendance meeting's path.
+     */
+    #[Computed]
+    public function attendanceStudents()
+    {
+        $meeting = $this->attendanceMeeting;
+        if (! $meeting) {
+            return collect();
+        }
+
+        return User::where('role', 'user')
+            ->whereHas('enrollments', fn ($q) => $q->where('learning_path_id', $meeting->learning_path_id))
+            ->with(['meetingAttendances.meeting'])
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * Open attendance modal for a specific meeting.
+     */
+    public function openAttendanceModal(int $meetingId): void
+    {
+        $meeting = PathMeeting::with('attendances')->findOrFail($meetingId);
+        abort_unless(Auth::user()->canManagePath((int) $meeting->learning_path_id), 403, 'Anda tidak memiliki hak akses untuk mengisi absensi pertemuan ini.');
+
+        $this->attendanceMeetingId = $meeting->id;
+        $this->attendanceStatuses = [];
+        $this->attendanceNotes = [];
+
+        $existingByUser = $meeting->attendances->keyBy('user_id');
+
+        $students = User::where('role', 'user')
+            ->whereHas('enrollments', fn ($q) => $q->where('learning_path_id', $meeting->learning_path_id))
+            ->orderBy('name')
+            ->get();
+
+        foreach ($students as $student) {
+            $existing = $existingByUser->get($student->id);
+            $this->attendanceStatuses[$student->id] = $existing?->status ?? '';
+            $this->attendanceNotes[$student->id] = $existing?->notes ?? '';
+        }
+
+        unset($this->attendanceMeeting, $this->attendanceStudents);
+        $this->showAttendanceModal = true;
+    }
+
+    /**
+     * Quick helper to mark all enrolled students as present (Hadir = +100 Pt).
+     */
+    public function markAllPresent(): void
+    {
+        foreach ($this->attendanceStudents as $student) {
+            $this->attendanceStatuses[$student->id] = MeetingAttendance::STATUS_HADIR;
+        }
+    }
+
+    /**
+     * Save student attendance and points for the active meeting.
+     */
+    public function saveAttendances(): void
+    {
+        $meeting = PathMeeting::findOrFail($this->attendanceMeetingId);
+        abort_unless(Auth::user()->canManagePath((int) $meeting->learning_path_id), 403, 'Anda tidak memiliki hak akses untuk menyimpan absensi pertemuan ini.');
+
+        $allowedStatuses = [
+            MeetingAttendance::STATUS_HADIR,
+            MeetingAttendance::STATUS_IZIN,
+            MeetingAttendance::STATUS_ALPHA,
+        ];
+
+        $savedCount = 0;
+
+        foreach ($this->attendanceStudents as $student) {
+            $status = $this->attendanceStatuses[$student->id] ?? '';
+            if (! in_array($status, $allowedStatuses, true)) {
+                continue;
+            }
+
+            $note = trim((string) ($this->attendanceNotes[$student->id] ?? ''));
+
+            MeetingAttendance::updateOrCreate(
+                [
+                    'path_meeting_id' => $meeting->id,
+                    'user_id' => $student->id,
+                ],
+                [
+                    'status' => $status,
+                    'points' => MeetingAttendance::pointsForStatus($status),
+                    'notes' => $note !== '' ? $note : null,
+                    'recorded_by' => Auth::id(),
+                ],
+            );
+
+            $savedCount++;
+        }
+
+        unset($this->meetings, $this->attendanceMeeting, $this->attendanceStudents);
+        $this->showAttendanceModal = false;
+
+        Flux::toast(
+            variant: 'success',
+            text: "Absensi & poin keaktifan untuk {$savedCount} peserta pada P-{$meeting->meeting_number} berhasil disimpan!",
+        );
+    }
+
+    /**
+     * Summary metrics (scoped for PJ).
      */
     #[Computed]
     public function metrics(): array
     {
-        $all = PathMeeting::all();
+        $user = Auth::user();
+        $query = PathMeeting::query();
+
+        if ($user && $user->isPj()) {
+            $query->whereIn('learning_path_id', $user->managedLearningPathIds());
+        }
+
+        $all = $query->get();
 
         return [
             'total' => $all->count(),
@@ -123,6 +291,8 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
      */
     public function createMeeting(): void
     {
+        abort_unless(Auth::user()->canManagePath((int) $this->learning_path_id), 403, 'Anda tidak memiliki hak akses untuk mengelola path ini.');
+
         $validated = $this->validate([
             'learning_path_id' => 'required|exists:learning_paths,id',
             'meeting_number' => [
@@ -156,6 +326,8 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
     public function editMeeting(int $id): void
     {
         $meeting = PathMeeting::findOrFail($id);
+        abort_unless(Auth::user()->canManagePath((int) $meeting->learning_path_id), 403, 'Anda tidak memiliki hak akses mengedit pertemuan path ini.');
+
         $this->editingMeetingId = $meeting->id;
         $this->learning_path_id = $meeting->learning_path_id;
         $this->meeting_number = $meeting->meeting_number;
@@ -180,6 +352,8 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
     public function updateMeeting(): void
     {
         $meeting = PathMeeting::findOrFail($this->editingMeetingId);
+        abort_unless(Auth::user()->canManagePath((int) $meeting->learning_path_id), 403, 'Anda tidak memiliki hak akses mengedit pertemuan path ini.');
+        abort_unless(Auth::user()->canManagePath((int) $this->learning_path_id), 403, 'Anda tidak memiliki hak akses memindahkan ke path ini.');
 
         $validated = $this->validate([
             'learning_path_id' => 'required|exists:learning_paths,id',
@@ -214,6 +388,8 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
     public function toggleComplete(int $id): void
     {
         $meeting = PathMeeting::findOrFail($id);
+        abort_unless(Auth::user()->canManagePath((int) $meeting->learning_path_id), 403);
+
         $meeting->update([
             'is_completed' => ! $meeting->is_completed,
         ]);
@@ -228,6 +404,8 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
     public function deleteMeeting(int $id): void
     {
         $meeting = PathMeeting::findOrFail($id);
+        abort_unless(Auth::user()->canManagePath((int) $meeting->learning_path_id), 403);
+
         $meeting->delete();
 
         Flux::toast(variant: 'warning', text: __('Pertemuan berhasil dihapus.'));
@@ -241,13 +419,13 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
         <div>
             <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-400/10 text-yellow-600 dark:text-yellow-400 mb-2 border border-yellow-400/20">
                 <flux:icon name="shield-check" class="size-3.5" />
-                <span>Admin Panel</span>
+                <span>{{ auth()->user()?->isPj() ? 'Panel Penanggung Jawab (PJ)' : 'Admin Panel' }}</span>
             </div>
             <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                Kelola Pertemuan & Alur Belajar
+                Kelola Pertemuan, Absensi & Alur Belajar
             </h1>
             <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                Atur urutan pertemuan per path, detail rundown, notes persiapan, serta upload rangkuman materi & rekaman setelah acara selesai.
+                Atur jadwal pertemuan per path, absensi & poin keaktifan peserta (Hadir: 100 pt, Izin: 50 pt, Maks: 600 pt), serta rangkuman materi setelah sesi selesai.
             </p>
         </div>
 
@@ -317,6 +495,7 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
                         <th class="px-5 py-3.5">Pertemuan & Path</th>
                         <th class="px-5 py-3.5">Jadwal & Waktu</th>
                         <th class="px-5 py-3.5">Lokasi & Tautan</th>
+                        <th class="px-5 py-3.5">Absensi Peserta</th>
                         <th class="px-5 py-3.5">Rangkuman Pas Acara</th>
                         <th class="px-5 py-3.5">Status</th>
                         <th class="px-5 py-3.5 text-right">Aksi</th>
@@ -327,6 +506,7 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
                         @php
                             $isPast = $meeting->isPast();
                             $hasRecap = filled($meeting->recap_summary) || filled($meeting->recap_recording_url) || filled($meeting->recap_slides_url);
+                            $totalAttendanceRecorded = (int) $meeting->hadir_count + (int) $meeting->izin_count + (int) $meeting->alpha_count;
                         @endphp
                         <tr class="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
                             <td class="px-5 py-4">
@@ -364,6 +544,34 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
                                             <span>Link Acara</span>
                                         </a>
                                     @endif
+                                </div>
+                            </td>
+                            <td class="px-5 py-4">
+                                <div class="space-y-1.5">
+                                    @if ($totalAttendanceRecorded > 0)
+                                        <div class="flex flex-wrap items-center gap-1 text-[10px] font-bold">
+                                            <span class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                                {{ $meeting->hadir_count }} Hadir
+                                            </span>
+                                            <span class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                                {{ $meeting->izin_count }} Izin
+                                            </span>
+                                            @if ($meeting->alpha_count > 0)
+                                                <span class="px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+                                                    {{ $meeting->alpha_count }} Alpha
+                                                </span>
+                                            @endif
+                                        </div>
+                                    @else
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                                            Belum Diabsen
+                                        </span>
+                                    @endif
+                                    <div>
+                                        <flux:button wire:click="openAttendanceModal({{ $meeting->id }})" variant="primary" size="xs" icon="clipboard-document-check">
+                                            Absensi Peserta
+                                        </flux:button>
+                                    </div>
                                 </div>
                             </td>
                             <td class="px-5 py-4">
@@ -411,7 +619,7 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="px-5 py-10 text-center text-zinc-400 italic">
+                            <td colspan="7" class="px-5 py-10 text-center text-zinc-400 italic">
                                 Belum ada jadwal pertemuan untuk path yang dipilih. Klik tombol "Tambah Pertemuan" di atas.
                             </td>
                         </tr>
@@ -628,5 +836,186 @@ new #[Title('Kelola Pertemuan & Alur - Admin')] class extends Component {
                 </flux:button>
             </div>
         </form>
+    </flux:modal>
+
+    <!-- Attendance & Activity Points Modal -->
+    <flux:modal wire:model="showAttendanceModal" class="!max-w-3xl w-full">
+        @if ($this->attendanceMeeting)
+            @php
+                $selectedValues = array_values($attendanceStatuses);
+                $countHadir = count(array_filter($selectedValues, fn ($v) => $v === 'hadir'));
+                $countIzin = count(array_filter($selectedValues, fn ($v) => $v === 'izin'));
+                $countAlpha = count(array_filter($selectedValues, fn ($v) => $v === 'alpha'));
+                $totalStudents = $this->attendanceStudents->count();
+                $countUnmarked = max(0, $totalStudents - ($countHadir + $countIzin + $countAlpha));
+            @endphp
+
+            <form wire:submit="saveAttendances" class="space-y-4">
+                <!-- Modal Header (padded right to avoid close X button collision) -->
+                <div class="pr-8 pb-3 border-b border-zinc-200 dark:border-zinc-800">
+                    <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-yellow-400/15 text-yellow-700 dark:text-yellow-400 mb-1.5">
+                        <flux:icon name="academic-cap" class="size-3.5" />
+                        <span>Pertemuan Ke-{{ $this->attendanceMeeting->meeting_number }}</span>
+                        <span>•</span>
+                        <span>{{ $this->attendanceMeeting->learningPath->title }}</span>
+                    </div>
+                    <flux:heading size="lg">Absensi & Poin Keaktifan Peserta</flux:heading>
+                    <flux:text class="text-xs mt-0.5">
+                        {{ $this->attendanceMeeting->title }} — {{ $this->attendanceMeeting->meeting_date->locale('id')->isoFormat('dddd, D MMMM Y (HH:mm)') }} WIB
+                    </flux:text>
+                </div>
+
+                <!-- Compact Point Rules Info Strip -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-800 text-xs">
+                    <div class="flex items-center gap-2.5 px-1">
+                        <span class="size-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                        <div>
+                            <p class="font-bold text-zinc-900 dark:text-zinc-100 leading-tight">Hadir: +100 Pt</p>
+                            <p class="text-[10px] text-zinc-500">Per pertemuan</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2.5 px-1">
+                        <span class="size-2.5 rounded-full bg-amber-500 shrink-0"></span>
+                        <div>
+                            <p class="font-bold text-zinc-900 dark:text-zinc-100 leading-tight">Izin: +50 Pt</p>
+                            <p class="text-[10px] text-zinc-500">Dengan keterangan</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2.5 px-1">
+                        <span class="size-2.5 rounded-full bg-red-500 shrink-0"></span>
+                        <div>
+                            <p class="font-bold text-zinc-900 dark:text-zinc-100 leading-tight">Alpha: 0 Pt</p>
+                            <p class="text-[10px] text-zinc-500">Tanpa keterangan</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2.5 px-1">
+                        <span class="size-2.5 rounded-full bg-yellow-400 shrink-0"></span>
+                        <div>
+                            <p class="font-bold text-zinc-900 dark:text-zinc-100 leading-tight">Maks: 600 Pt</p>
+                            <p class="text-[10px] text-zinc-500">Lulus Sertifikat ≥ 500 Pt</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Summary & Quick Action Toolbar -->
+                @if ($this->attendanceStudents->isNotEmpty())
+                    <div class="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100/80 dark:bg-zinc-800/80 border border-zinc-200/70 dark:border-zinc-700/60">
+                        <div class="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                            <span class="text-zinc-500 dark:text-zinc-400 mr-1">Rekap Sesi Ini:</span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                <span class="size-1.5 rounded-full bg-emerald-500"></span>
+                                {{ $countHadir }} Hadir
+                            </span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                                <span class="size-1.5 rounded-full bg-amber-500"></span>
+                                {{ $countIzin }} Izin
+                            </span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500/15 text-red-700 dark:text-red-300">
+                                <span class="size-1.5 rounded-full bg-red-500"></span>
+                                {{ $countAlpha }} Alpha
+                            </span>
+                            @if ($countUnmarked > 0)
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300">
+                                    {{ $countUnmarked }} Belum Dipilih
+                                </span>
+                            @endif
+                        </div>
+
+                        <flux:button type="button" wire:click="markAllPresent" variant="subtle" size="xs" icon="check-badge">
+                            Tandai Semua Hadir (+100 Pt)
+                        </flux:button>
+                    </div>
+                @endif
+
+                <!-- Student List -->
+                <div class="max-h-[380px] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200/70 dark:divide-zinc-800">
+                    @forelse ($this->attendanceStudents as $student)
+                        @php
+                            $currentPoints = $student->pointsForPath($this->attendanceMeeting->learning_path_id);
+                            $selectedStatus = $attendanceStatuses[$student->id] ?? '';
+                        @endphp
+                        <div class="p-4 bg-white dark:bg-zinc-900 hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 transition-colors space-y-3">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <!-- Student Identity & Current Total Points -->
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div class="size-9 rounded-xl bg-yellow-400/20 text-yellow-700 dark:text-yellow-300 font-bold text-xs flex items-center justify-center shrink-0 border border-yellow-400/30">
+                                        {{ $student->initials() }}
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <p class="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate">{{ $student->name }}</p>
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold {{ $currentPoints >= 500 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-yellow-400/15 text-yellow-700 dark:text-yellow-300 border border-yellow-400/30' }}">
+                                                <flux:icon name="sparkles" class="size-2.5" />
+                                                {{ $currentPoints }} / 600 Pt
+                                            </span>
+                                        </div>
+                                        <p class="text-[11px] text-zinc-400 truncate mt-0.5">
+                                            {{ $student->email }}
+                                            @if ($student->major)
+                                                <span>• {{ $student->major }}</span>
+                                            @endif
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <!-- Segmented Attendance Status Selector (Single Row) -->
+                                <div class="inline-flex items-center p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700 shrink-0 self-start sm:self-center">
+                                    <button
+                                        type="button"
+                                        wire:click="$set('attendanceStatuses.{{ $student->id }}', 'hadir')"
+                                        class="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer {{ $selectedStatus === 'hadir' ? 'bg-emerald-500 text-white shadow-xs' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100' }}"
+                                    >
+                                        ✓ Hadir (+100)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        wire:click="$set('attendanceStatuses.{{ $student->id }}', 'izin')"
+                                        class="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer {{ $selectedStatus === 'izin' ? 'bg-yellow-400 text-zinc-950 shadow-xs' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100' }}"
+                                    >
+                                        ! Izin (+50)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        wire:click="$set('attendanceStatuses.{{ $student->id }}', 'alpha')"
+                                        class="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer {{ $selectedStatus === 'alpha' ? 'bg-red-500 text-white shadow-xs' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100' }}"
+                                    >
+                                        ✕ Alpha (0)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Optional Notes Input -->
+                            <div class="pl-0 sm:pl-12">
+                                <flux:input
+                                    size="sm"
+                                    icon="pencil-square"
+                                    wire:model="attendanceNotes.{{ $student->id }}"
+                                    placeholder="Keterangan izin / catatan kehadiran opsional (contoh: Sakit dengan surat dokter)..."
+                                />
+                            </div>
+                        </div>
+                    @empty
+                        <div class="p-8 text-center text-xs text-zinc-400 italic">
+                            Belum ada mahasiswa yang terdaftar pada learning path <span class="font-semibold">{{ $this->attendanceMeeting->learningPath->title }}</span>.
+                        </div>
+                    @endforelse
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
+                    <p class="text-xs text-zinc-500">
+                        Total Terdaftar: <span class="font-bold text-zinc-800 dark:text-zinc-200">{{ $totalStudents }} Peserta</span>
+                    </p>
+                    <div class="flex items-center gap-2">
+                        <flux:button type="button" wire:click="$set('showAttendanceModal', false)" variant="subtle">
+                            Batal
+                        </flux:button>
+                        <flux:button type="submit" variant="primary" icon="check">
+                            Simpan Absensi & Poin
+                        </flux:button>
+                    </div>
+                </div>
+            </form>
+        @endif
     </flux:modal>
 </div>
